@@ -135,7 +135,7 @@ const scoreText = (n) => {
 };
 
 function topbar(v, right = '') {
-  return `<div class="topbar"><div class="brand"><i></i>돌멩민국 슬랑이 시장</div>${right ? `<div class="pill">${right}</div>` : ''}</div>`;
+  return `<div class="topbar"><div class="brand"><i></i>2. 시장경제와 국가 간 거래</div>${right ? `<div class="pill">${right}</div>` : ''}</div>`;
 }
 
 function render(v, prev) {
