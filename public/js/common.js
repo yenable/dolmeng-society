@@ -13,68 +13,134 @@ export const signed = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(
 export const medal = (rank) => ({ 1: '🥇', 2: '🥈', 3: '🥉' })[rank] ?? '';
 export const rankText = (rank) => (rank ? `${rank}위` : '-');
 
-// 실시간 상태 구독. 끊기면 자동으로 다시 연결합니다.
-export function connectStream(params, { onState, onStatus, onFatal }) {
-  let es = null;
-  let lastMsg = Date.now();
+// ── 실시간 상태 구독 ───────────────────────────────────────────────
+//  · Supabase Realtime 으로 '변경 신호'(session_pulse)를 받으면 곧바로 서버에서 화면 데이터를 다시 받음
+//  · 신호와 상관없이 몇 초마다 한 번씩도 확인 (Realtime 이 막히거나 끊겨도 상태가 어긋나지 않음)
+//  · 네트워크 오류는 '연결 끊김'으로만 알림. 토큰/기업 선택은 절대 건드리지 않음
+const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+export function connectLive({ role, headers = () => ({}) }, { onState, onStatus, onAuthError }) {
   let closed = false;
-  let retryTimer = null;
+  let inflight = false;
+  let again = false;
+  let timer = null;
+  let fails = 0;
+  let realtimeOk = false;
+  let channel = null;
 
   const status = (s) => onStatus?.(s);
-  function open() {
+
+  async function refresh() {
     if (closed) return;
-    es = new EventSource(`/events?${new URLSearchParams(params)}`);
-    es.addEventListener('state', (e) => {
-      lastMsg = Date.now();
-      status('online');
-      let data;
-      try {
-        data = JSON.parse(e.data);
-      } catch {
+    if (inflight) {
+      again = true;
+      return;
+    }
+    inflight = true;
+    clearTimeout(timer);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const res = await fetch(`/api/state?role=${role}`, { headers: headers(), cache: 'no-store', signal: ctrl.signal });
+      if (res.status === 401 && onAuthError) {
+        onAuthError();
         return;
       }
-      onState(data);
-    });
-    es.addEventListener('ping', () => {
-      lastMsg = Date.now();
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      fails = 0;
       status('online');
-    });
-    es.onerror = () => {
-      status('offline');
-      if (es.readyState === EventSource.CLOSED) {
-        clearTimeout(retryTimer);
-        retryTimer = setTimeout(reopen, 2000);
-        onFatal?.();
-      }
-    };
+      onState(data);
+    } catch {
+      fails += 1;
+      if (fails >= 2) status('offline');
+    } finally {
+      clearTimeout(t);
+      inflight = false;
+      if (again) {
+        again = false;
+        refresh();
+      } else schedule();
+    }
   }
-  function reopen() {
+
+  function schedule() {
+    clearTimeout(timer);
+    if (closed) return;
+    // 실패 중이면 2초마다 재시도, Realtime 이 살아 있으면 5초, 아니면 2초
+    timer = setTimeout(refresh, fails ? 2000 : realtimeOk ? 5000 : 2000);
+  }
+
+  async function startRealtime(delay = 0) {
+    if (delay) await new Promise((r) => setTimeout(r, delay));
     if (closed) return;
     try {
-      es?.close();
-    } catch { /* noop */ }
-    open();
-  }
-  const watchdog = setInterval(() => {
-    if (Date.now() - lastMsg > 40_000) {
-      lastMsg = Date.now();
-      status('offline');
-      reopen();
+      const cfg = await (await fetch('/api/config', { cache: 'no-store' })).json();
+      if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) return; // Realtime 없이 polling 만
+      const { createClient } = await import(SUPABASE_JS);
+      const sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      channel = sb
+        .channel(`slangi-${role}-${Math.random().toString(36).slice(2, 8)}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'session_pulse' }, () => refresh())
+        .subscribe((st) => {
+          const ok = st === 'SUBSCRIBED';
+          if (ok && !realtimeOk) refresh(); // 다시 연결되면 놓친 변경을 바로 확인
+          realtimeOk = ok;
+        });
+    } catch {
+      realtimeOk = false;
+      startRealtime(15_000); // CDN·설정 불러오기 실패: 잠시 뒤 다시 시도 (그동안 polling 으로 동작)
     }
-  }, 5000);
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && Date.now() - lastMsg > 20_000) reopen();
-  });
-  window.addEventListener('online', reopen);
-  open();
+  }
+
+  const wake = () => {
+    if (!document.hidden) refresh();
+  };
+  document.addEventListener('visibilitychange', wake);
+  window.addEventListener('online', wake);
+  window.addEventListener('pageshow', wake);
+  window.addEventListener('focus', wake);
+
+  refresh();
+  startRealtime();
   return {
+    refresh,
     close() {
       closed = true;
-      clearInterval(watchdog);
-      es?.close();
+      clearTimeout(timer);
+      try {
+        channel?.unsubscribe();
+      } catch { /* noop */ }
     },
-    reconnect: reopen,
   };
+}
+
+// 학생 화면용 작은 연결 상태 표시: 연결됨 / 끊김(다시 연결 중) / 다시 연결되었습니다
+export function connBadge(status) {
+  let el = $('#linkstate');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'linkstate';
+    el.className = 'linkstate';
+    document.body.appendChild(el);
+  }
+  const prev = connBadge.state;
+  connBadge.state = status;
+  const set = (cls, text) => {
+    el.className = `linkstate ${cls}`;
+    el.innerHTML = text.replace(/^●/, '<i class="d">●</i>');
+  };
+  if (status === 'offline') {
+    clearTimeout(connBadge.t);
+    set('off', '● 연결이 잠시 끊겼어요. 다시 연결하는 중…');
+  } else if (status === 'recovered' || (status === 'online' && prev === 'offline')) {
+    clearTimeout(connBadge.t);
+    set('ok recovered', '✓ 다시 연결되었습니다.');
+    connBadge.state = 'online';
+    connBadge.t = setTimeout(() => set('ok', '● 연결됨'), 3000);
+  } else if (status === 'online' && !el.classList.contains('recovered')) {
+    set('ok', '● 연결됨');
+  }
 }
 
 export async function api(path, body = {}, headers = {}) {

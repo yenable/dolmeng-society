@@ -16,7 +16,6 @@ const test = (name, fn) => {
   }
 };
 const conns = {};
-const media = { videoAvailable: false, videoUrl: '/videos/social-impact.mp4' };
 const goto = (g, id) => g.goto(id);
 const submitAll = (g, r, choices, extra = {}) => TEAM_IDS.forEach((id, i) => g.submit(id, { round: r, choice: choices[i], reason: '테스트 이유', prediction: 'half', ...extra }, { byAdmin: true }));
 
@@ -147,8 +146,16 @@ test('뉴스는 실제 선택 기반 · 조사 자동 · 발생하지 않은 뉴
   assert.equal(g.state.stepId, 'BLACKOUT');
   g.next('BLACKOUT');
   assert.equal(g.state.stepId, 'NEWS_CONSUMER');
-  g.next('NEWS_CONSUMER');
-  assert.equal(g.state.stepId, 'SOCIAL_VIDEO'); // 환경·공정 뉴스 건너뜀
+  assert.equal(g.state.revealIndex, 0); // 제목 장면
+  assert.equal(g.displayView(conns).news.lines.length, 0); // 기사 내용은 아직
+  g.next('NEWS_CONSUMER', 0);
+  assert.equal(g.state.stepId, 'NEWS_CONSUMER');
+  assert.ok(g.displayView(conns).news.lines.length > 0); // 다음 클릭에 기사 내용
+  g.next('NEWS_CONSUMER', 1);
+  assert.equal(g.state.stepId, 'SOCIAL_PAPER'); // 환경·공정 뉴스 건너뜀
+  assert.ok(g.displayView(conns).headlines.length >= 1);
+  g.prev('SOCIAL_PAPER');
+  assert.deepEqual([g.state.stepId, g.state.revealIndex], ['NEWS_CONSUMER', 1]); // 뒤로 오면 기사까지 보임
   assert.equal(g.socialScore(), 60);
 });
 
@@ -160,10 +167,16 @@ test('사회점수 공개는 항목별로 한 단계씩 (이전 누르면 거꾸
   assert.equal(g.state.revealIndex, 0);
   for (let i = 0; i < n; i++) g.next('SOCIAL_SCORE_REVEAL', i);
   assert.equal(g.state.revealIndex, n);
-  g.next('SOCIAL_SCORE_REVEAL', n);
+  assert.equal(g.displayView(conns).score.done, false);
+  assert.throws(() => g.next('SOCIAL_SCORE_REVEAL', n - 1), (e) => e.status === 409); // 늦게 온 같은 클릭은 무시
+  g.next('SOCIAL_SCORE_REVEAL', n); // 최종 사회점수 장면
+  assert.equal(g.state.revealIndex, n + 1);
+  assert.equal(g.displayView(conns).score.done, true);
+  assert.equal(g.displayView(conns).score.items.length, n);
+  g.next('SOCIAL_SCORE_REVEAL', n + 1);
   assert.equal(g.state.stepId, 'REFLECTION');
   g.prev('REFLECTION');
-  assert.equal(g.state.revealIndex, n);
+  assert.equal(g.state.revealIndex, n + 1);
 });
 
 test('학생·TV 화면 데이터에 숨은 값이 없음', () => {
@@ -173,11 +186,11 @@ test('학생·TV 화면 데이터에 숨은 값이 없음', () => {
   for (const st of STEPS) {
     g.state.stepId = st.id;
     const tv = JSON.stringify(g.teamView(1, conns));
-    for (const secret of ['socialEvents', '"score":{', 'variance', 'internal', 'MULTIPLIER', 'seed', '"token"']) {
+    for (const secret of ['socialEvents', '"score":{', 'variance', 'internal', 'MULTIPLIER', 'seed', 'tokenHash']) {
       assert.ok(!tv.includes(secret), `학생 화면(${st.id})에 ${secret} 포함`);
     }
-    const dv = JSON.stringify(g.displayView(conns, media));
-    for (const secret of ['variance', 'internal', 'MULTIPLIER', 'seed', '"token"']) assert.ok(!dv.includes(secret), `TV(${st.id})에 ${secret}`);
+    const dv = JSON.stringify(g.displayView(conns));
+    for (const secret of ['variance', 'internal', 'MULTIPLIER', 'seed', 'tokenHash']) assert.ok(!dv.includes(secret), `TV(${st.id})에 ${secret}`);
     if (st.index < STEPS.find((x) => x.id === 'BLACKOUT').index) {
       assert.ok(!dv.includes('"score":{') && !dv.includes('"news":{') && !dv.includes('"headlines"'), `TV(${st.id})에 사회 영향 데이터가 미리 보임`);
     }
@@ -233,6 +246,54 @@ test('이미 선택된 기업은 다른 노트북이 가져갈 수 없음', () =
   assert.throws(() => g.claim(2), (e) => e.status === 409);
   g.release(2);
   assert.ok(g.claim(2));
+});
+
+test('프레젠터(안전 모드): 학생 미제출이면 넘기지 않고 결과도 계산하지 않음', () => {
+  const g = new GameEngine();
+  g.testAutoJoin();
+  goto(g, 'ROUND1_MEETING');
+  g.submit(1, { round: 1, choice: 10000, reason: '테스트' }, { byAdmin: true });
+  assert.throws(() => g.next('ROUND1_MEETING', null, { safe: true }), (e) => e.status === 423);
+  assert.throws(() => g.prev('ROUND1_MEETING', null, { safe: true }), (e) => e.status === 423);
+  assert.equal(g.state.stepId, 'ROUND1_MEETING');
+  g.next('ROUND1_MEETING'); // 교사 콘솔(강제 진행)은 가능
+  assert.equal(g.state.stepId, 'ROUND1_RESPONSES');
+  assert.throws(() => g.next('ROUND1_RESPONSES', null, { safe: true }), (e) => e.status === 423);
+  assert.equal(g.state.rounds[1], undefined); // 결과 계산 안 됨
+  g.prev('ROUND1_RESPONSES', null, { safe: true }); // 뒤로는 가능
+  assert.equal(g.state.stepId, 'ROUND1_MEETING');
+  g.testAutoSubmit('random');
+  g.next('ROUND1_MEETING', null, { safe: true });
+  g.next('ROUND1_RESPONSES', null, { safe: true });
+  assert.equal(g.state.stepId, 'ROUND1_RESULT');
+  assert.ok(g.state.rounds[1].computed);
+});
+
+test('프레젠터: 사회적 영향 이후는 자유롭게 앞뒤', () => {
+  const g = new GameEngine();
+  g.testAutoComplete('profitFirst');
+  const at = () => `${g.state.stepId}:${g.state.revealIndex}`;
+  const seen = [];
+  for (let i = 0; i < 40 && g.state.stepId !== 'REFLECTION'; i++) {
+    seen.push(at());
+    g.next(g.state.stepId, g.state.revealIndex, { safe: true });
+  }
+  assert.equal(g.state.stepId, 'REFLECTION');
+  assert.ok(seen.includes('NEWS_FAIRNESS:1') && seen.includes('SOCIAL_PAPER:0') && seen.includes('BLACKOUT:0'));
+  assert.throws(() => g.next('REFLECTION', null, { safe: true }), (e) => e.status === 423);
+  g.testAutoReflect(); // 정리 활동을 모두 낸 뒤에는 자유롭게 이동
+  for (let i = seen.length - 1; i >= 1; i--) {
+    g.prev(g.state.stepId, g.state.revealIndex, { safe: true });
+    assert.equal(at(), seen[i]);
+  }
+});
+
+test('재접속 토큰은 해시로만 저장', () => {
+  const g = new GameEngine();
+  const token = g.claim(3);
+  assert.ok(!JSON.stringify(g.state).includes(token));
+  assert.equal(g.teamIdByToken(token), 3);
+  assert.equal(g.teamIdByToken(`${token}x`), null);
 });
 
 console.log(`\n${passed}개 통과${process.exitCode ? ' · 실패 있음' : ''}`);

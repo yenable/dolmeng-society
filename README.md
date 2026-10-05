@@ -1,71 +1,127 @@
 # 돌멩민국 슬랑이 시장
 
 초등 6학년 사회 공개수업용 실시간 기업 경영 시뮬레이션.
-Node.js만 있으면 됩니다. **npm install 필요 없음** (외부 패키지 0개).
+**Vercel(정적 화면 + 서버 함수) + Supabase(상태 저장·Realtime)** 로 동작합니다. 서버를 계속 켜 둘 필요가 없습니다.
 
-## 실행
+> 예전 `node server.js` 버전(노트북 한 대로 돌리는 비상용)은 **`legacy-node` 브랜치**에 그대로 보존되어 있습니다.
+> `git checkout legacy-node && node server.js` 로 언제든 다시 쓸 수 있습니다. main 의 코드와 섞지 마세요.
 
-```bash
-node server.js          # 또는 npm start
-```
+## 주소
 
-실행하면 접속 주소가 출력됩니다.
-
-| 화면 | 주소 | 누가 |
+| 누가 | 주소 | 설명 |
 |---|---|---|
-| 학생 | `http://<교사노트북IP>:3000/play` | 모둠 노트북 5대 |
-| TV | `http://<교사노트북IP>:3000/display` | 전자칠판/TV |
-| 교사 | `http://localhost:3000/admin` | 교사 노트북 (PIN) |
+| 학생 | `https://<도메인>/` | 들어가면 곧바로 **기업 선택**. QR 로 이 주소 하나만 공유 (`/play` 도 같은 화면) |
+| 교사 | `https://<도메인>/admin` | 교사 PIN 로그인 → 진행 콘솔 |
+| 교실 TV (보기만) | `https://<도메인>/display` | 교사 콘솔 진행에 따라 자동으로 바뀜. 키보드를 눌러도 진행되지 않음 |
+| 교실 TV (리모컨 진행) | `https://<도메인>/display?presenter=1` | PIN 입력 후 PPT 프레젠터 리모컨으로 앞뒤 진행 |
 
-- 교사 PIN 기본값: `2580` → `src/config.js`의 `SERVER_CONFIG.ADMIN_PIN` 또는 환경변수 `ADMIN_PIN`으로 변경
-- 포트 변경: 환경변수 `PORT`
+## 처음 배포하기 (한 번만)
 
-## 게임 밸런스 수정 — `src/config.js`의 `GAME_CONFIG`
+### 1) Supabase
+1. [supabase.com](https://supabase.com) 에서 새 프로젝트 생성 (Region: Northeast Asia (Seoul) 권장)
+2. 왼쪽 **SQL Editor → New query** 에 **`supabase/schema.sql` 파일 전체를 붙여 넣고 Run** 하세요.
+   (여러 번 실행해도 안전합니다. 테이블·제약·RLS·RPC·Realtime 설정이 모두 들어 있습니다.)
+3. **Project Settings → API** 에서 세 값을 복사해 둡니다.
+   - Project URL → `SUPABASE_URL`
+   - `anon` `public` 키 → `SUPABASE_ANON_KEY` (Legacy API keys 탭의 anon 키 권장)
+   - `service_role` `secret` 키 → `SUPABASE_SERVICE_ROLE_KEY` (Legacy 탭의 service_role 키 권장)
+4. (확인) **Database → Publications → supabase_realtime** 에 `session_pulse` 테이블이 켜져 있어야 합니다. SQL 이 자동으로 켜 줍니다.
 
-모든 경제 규칙과 사회점수는 이 한 객체에 있습니다. 숫자만 바꾸고 서버를 재시작하면 반영됩니다.
-바꾼 뒤에는 `npm run simulate`로 결과 분포를 확인하세요.
+### 2) Vercel
+1. Vercel → **Add New → Project** → GitHub `dolmeng-society` 저장소 Import
+2. Framework Preset: **Other** (빌드 명령 없음. `vercel.json` 이 알아서 설정)
+3. **Settings → Environment Variables** 에 4개 입력 (Production, Preview 모두 체크)
 
-화면 문구(상황 설명, 선택지 설명)는 `src/content.js`에 있습니다.
+   | 이름 | 값 | 공개 여부 |
+   |---|---|---|
+   | `SUPABASE_URL` | Project URL | 브라우저에 전달됨 (공개 가능) |
+   | `SUPABASE_ANON_KEY` | anon 키 | 브라우저에 전달됨 (공개 가능 — RLS 로 `session_pulse` 읽기만 허용) |
+   | `SUPABASE_SERVICE_ROLE_KEY` | service_role 키 | **서버 전용. 절대 공개 금지.** 브라우저 코드에 들어가지 않음 |
+   | `ADMIN_PIN` | 교사 PIN (예: 6자리 이상) | 서버 전용. 비우면 기본값 `2580` |
 
-## 영상
+4. **Deploy**. 환경변수를 바꾼 뒤에는 **Redeploy** 해야 반영됩니다.
+5. `https://<도메인>/admin` 에 PIN 으로 로그인되면 끝 (첫 로그인 때 게임 세션이 만들어집니다).
 
-`public/videos/social-impact.mp4`에 파일을 넣으면 됩니다. 없으면 대체 뉴스 슬라이드가 나옵니다.
+## 수업 당일
 
-## 테스트
+### 준비 (수업 10분 전)
+1. 교사 노트북: `/admin` 로그인 → 리허설 데이터가 있으면 **전체 초기화** ('모둠 접속은 유지' 체크 해제 권장)
+2. 교실 TV 컴퓨터:
+   - 리모컨 없이: `/display` 를 열고 **화면을 한 번 클릭** (전체화면 + 효과음 허용)
+   - 리모컨으로 진행: `/display?presenter=1` → PIN 입력 → **[시작하기]** (전체화면 + 효과음 허용).
+     왼쪽 아래 작은 `PRESENTER ●` 가 보이면 준비 완료 (초록=대기, 주황=처리 중, 빨강=넘길 수 없음)
+3. 모둠 노트북 5대: 사이트 주소(`/`) 접속 → 각자 기업 선택 → 교사 콘솔·TV 에서 5개 '접속' 확인
 
-```bash
-npm test            # 엔진 단위 테스트 + 실제 서버 통합 테스트
-npm run simulate    # 밸런스 시뮬레이션 (무작위 3,000판)
-```
+### 진행
+- 교사 콘솔 **[다음]** 또는 TV 리모컨으로 진행 (둘 다 같은 서버 명령을 씀)
+- 라운드마다: 상황 → 회의 시작 → 선택과 이유 공개 → 시장 결과 → 이윤 순위
+- 4라운드 후: 최종 순위 → **하지만…(검정 화면)** → 뉴스(소비자·환경·공정 경쟁: 클릭 1 = 속보음 + 제목 타이핑, 클릭 2 = 기사 내용)
+  → **돌멩일보 사회면**(오늘의 주요 기사 제목이 차례로 타이핑) → 사회점수(시작 100 → 항목마다 한 클릭 → 최종 사회점수)
+  → 정리 활동 → 바꾼 선택 공개 → 마무리 문장
 
-## 수업 당일 순서
+### 프레젠터 리모컨
+| 키 | 동작 |
+|---|---|
+| `→` `PageDown` `Enter` `Space` | 다음 장면 |
+| `←` `PageUp` `Backspace` | 이전 장면 |
 
-1. 교사 노트북에서 `node server.js` 실행 → 출력된 주소 확인
-2. TV에 `/display`를 띄우고 **화면을 한 번 클릭** (전체화면 + 영상 소리 허용)
-3. 교사 노트북에서 `/admin` 로그인. 리허설 데이터가 남아 있으면 **전체 초기화**
-4. 모둠 노트북 5대에서 `/play` 접속 → 각자 기업 선택 → 교사 콘솔/TV에서 5개 접속 확인
-5. 교사 콘솔의 큰 **[다음]** 버튼으로만 진행
-   - 라운드마다: 상황 → 회의 시작 → 선택과 이유 공개 → 시장 결과 → 이윤 순위
-   - 4라운드 후 최종 순위 → **사회적 영향 공개 시작** → 뉴스 → 영상(재생 버튼) → 사회점수(항목마다 다음) → 정리 → 마무리
-6. 문제 상황
-   - 미제출 모둠: 경고를 확인하고 진행하면 기본 선택이 적용됨. 또는 [대신 제출]
-   - 잘못 제출: [제출 초기화] (비용 환불, 학생이 다시 제출)
-   - 노트북 교체/고장: [연결 해제] 후 새 노트북에서 같은 기업 선택 (기록 유지)
-   - 새로고침·서버 재시작: 상태는 `data/state.json`에 저장되어 그대로 복구됨
+- 한 번 누르면 한 장면만 넘어갑니다 (0.6초 입력 잠금, 키를 누르고 있어도 반복되지 않음).
+- **학생이 결정 중인 회의 단계(제출 미완료)와 정리 활동 작성 중에는 리모컨으로 넘어가지 않습니다.**
+  TV 에 "아직 결정 중인 기업이 있습니다. 강제 진행은 교사 화면에서 할 수 있습니다." 가 잠깐 뜹니다. 강제 진행은 `/admin` 에서만.
+- 최종 순위 이후(검정 화면·뉴스·사회면·사회점수·정리 결과·마무리)는 PPT 처럼 자유롭게 앞뒤로 넘길 수 있습니다.
 
-## 네트워크
+### 문제 상황
+| 상황 | 해결 |
+|---|---|
+| 학생 노트북 새로고침·탭 닫힘·절전·와이파이 끊김 | 다시 `/` 접속하면 **같은 기업으로 자동 복귀**. 쓰던 이유도 그대로 복구 |
+| 화면 오른쪽 아래 "연결이 잠시 끊겼어요" | 기다리면 자동 재연결 → "✓ 다시 연결되었습니다." (기업 선택은 지워지지 않음) |
+| 미제출 모둠 | 교사 콘솔 경고 확인 후 진행하면 기본 선택 적용. 또는 [대신 제출] |
+| 잘못 제출 | [제출 초기화] (비용 환불, 학생이 다시 제출) |
+| 노트북 교체/고장 | [연결 해제] 후 새 노트북에서 같은 기업 선택 (기록 유지) |
+| 교사 콘솔·TV 새로고침 | 현재 단계 그대로 복귀 |
 
-학교 와이파이가 기기끼리 통신을 막는 경우(학생 노트북에서 교사 노트북 주소가 안 열림), 교사 노트북 핫스팟을 쓰거나 이 폴더를 Node 호스팅 서비스(Render, Railway 등)에 올려 `node server.js`로 실행하면 됩니다. 반드시 수업 전에 학생 노트북 1대로 접속을 확인하세요.
+## 게임 밸런스 — `src/config.js` 의 `GAME_CONFIG`
+모든 경제 규칙과 사회점수 규칙은 이 한 객체에 있습니다. 바꾼 뒤 `npm run simulate` 로 결과 분포를 확인하고 다시 배포하세요.
+화면 문구(상황 설명, 선택지 설명)는 `src/content.js`, 뉴스 문장은 `src/news.js` 에 있습니다.
+계산은 모두 서버 함수에서만 하며, 숨은 값(광고 배수, 시장 변동, 사회점수 규칙 등)은 학생·TV 브라우저로 보내지 않습니다.
 
 ## 구조
 
 ```
-server.js            HTTP + 실시간(SSE) + API, 상태 저장
-src/config.js        ★ GAME_CONFIG (밸런스), SERVER_CONFIG
-src/content.js       기업·라운드 문구
-src/engine.js        진행 단계, 시장 계산(라운드당 1회), 사회점수, 역할별 화면 데이터
-src/news.js          실제 선택 기반 뉴스 생성
-public/              play / display / admin 화면
-scripts/             테스트, 시뮬레이션
-data/state.json      현재 게임 상태 (자동 생성)
+public/                     화면 (정적 파일)
+  index.html                학생 화면 ( / 와 /play )
+  admin.html, display.html  교사 콘솔, 교실 TV (+ 프레젠터 모드)
+  js/common.js              Realtime 신호 + 주기적 확인, 연결 상태 표시
+  js/sfx.js                 뉴스 효과음 (Web Audio 합성, 파일 없음)
+api/                        Vercel 서버 함수 (실제 처리는 src/api.js)
+  state.js                  GET  /api/state?role=play|display|admin   역할별 화면 데이터
+  play/[action].js          POST /api/play/claim|leave|submit|reflect
+  admin/[action].js         POST /api/admin/login|action  (교사 PIN 필요)
+  config.js                 GET  /api/config  (Supabase URL·anon 키만)
+src/
+  config.js                 ★ GAME_CONFIG (밸런스), SERVER_CONFIG
+  engine.js                 진행 단계, 시장 계산(라운드당 1회), 사회점수, 역할별 화면 데이터
+  api.js                    API 라우팅, 낙관적 잠금(revision) 저장, PIN 확인
+  store.js                  Supabase(PostgREST RPC) / 메모리 저장소
+  projection.js             엔진 상태 → 정규화 테이블 행
+supabase/schema.sql         ★ Supabase SQL Editor 에서 실행할 스키마
+scripts/                    로컬 서버, 테스트, 시뮬레이션
+```
+
+### 데이터 흐름
+- 진짜 기준은 `game_sessions.state` (엔진 상태 JSON). 모든 변경은 서버 함수가 **최신 상태 읽기 → 규칙 적용 → `revision` 이 그대로일 때만 저장**(`slangi_save` RPC, 한 트랜잭션). 누가 먼저 바꿨으면 최신 상태로 다시 시도합니다.
+- 같은 트랜잭션에서 `teams / responses / round_results / social_events / reflections` 도 함께 기록됩니다 (기록 확인용 + UNIQUE 제약 이중 안전장치).
+- `round_results` 는 한 번 기록되면 바뀌거나 지워질 수 없습니다(DB 가 거부). 라운드 결과·돈 지급은 정확히 한 번.
+- 브라우저는 `session_pulse`(세션 id·revision·현재 단계만)를 Realtime 으로 구독하고, 신호가 오면 `/api/state` 로 자기 역할 화면만 받아 갑니다. Realtime 이 막혀도 2~5초마다 확인하므로 화면이 어긋나지 않습니다.
+- 전체 초기화 = 새 세션 생성. 이전 세션은 `archived` 로 보관되어 수업 데이터와 섞이지 않습니다.
+
+## 로컬에서 실행 / 테스트
+
+```bash
+npm install                 # 테스트 도구(PGlite, puppeteer-core)만 설치됨. 운영에는 의존성 없음
+npm run dev                 # .env 에 Supabase 값이 있으면 Supabase, 없으면 메모리 저장소 (http://localhost:3000)
+npm run dev:memory          # 항상 메모리 저장소 (끄면 초기화, Realtime 없이 polling)
+npm test                    # 엔진 단위 + HTTP 통합(메모리) + Supabase 스키마 통합(PGlite 에서 schema.sql 실제 실행)
+npm run test:browser        # 실제 브라우저(Edge/Chrome): 재접속·draft 복구·네트워크 끊김·프레젠터 키
+npm run simulate            # 밸런스 시뮬레이션
 ```

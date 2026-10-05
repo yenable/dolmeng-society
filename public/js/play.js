@@ -1,36 +1,71 @@
-// 학생(모둠) 화면 /play
+// 학생(모둠) 화면 — 사이트 기본 주소 / (그리고 /play)
 import {
-  $, $$, esc, won, signedWon, medal, connectStream, api, toast, netBanner, animateNumber, storage, withJosa, josa,
+  $, $$, esc, won, signedWon, medal, connectLive, connBadge, api, toast, animateNumber, storage, withJosa, josa,
 } from './common.js';
 
 // 같은 브라우저에서 여러 탭으로 테스트할 때: /play?t=2 처럼 구분
 const slot = new URLSearchParams(location.search).get('t') || '';
-const TOKEN_KEY = `slangi.token${slot}`;
+const TOKEN_KEY = `slangi.token${slot}`; // 재접속 토큰 (기업 선택 시 저장, 진짜 무효일 때만 삭제)
+const NAME_KEY = `slangi.teamName${slot}`; // '○○기업으로 다시 연결하고 있습니다…' 표시용
 let token = storage.get(TOKEN_KEY) || '';
 let view = null;
-let stream = null;
+let live = null;
 let screenKey = '';
 let busy = false;
 let hudPrev = null;
 let form = {}; // 현재 입력 중인 선택/이유 (새로고침해도 복구되도록 localStorage에 저장)
 let formKey = '';
+let reconnecting = !!token; // 저장된 토큰으로 다시 들어온 경우
 
 const main = $('#main');
 const hud = $('#hud');
 
-function startStream() {
-  stream?.close();
-  stream = connectStream({ role: 'play', token }, { onState, onStatus: netBanner });
+// 이 탭(노트북)을 구분하는 값 — 교사 화면의 '2대 접속' 경고용
+const clientId = (() => {
+  try {
+    let id = sessionStorage.getItem('slangi.client');
+    if (!id) {
+      id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      sessionStorage.setItem('slangi.client', id);
+    }
+    return id;
+  } catch {
+    return Math.random().toString(36).slice(2);
+  }
+})();
+
+if (reconnecting) {
+  const name = storage.get(NAME_KEY);
+  main.innerHTML = `<p class="loading">${name ? `${esc(withJosa(name, '으로'))} 다시 연결하고 있습니다…` : '다시 연결하고 있습니다…'}</p>`;
+}
+
+function startLive() {
+  live = connectLive(
+    { role: 'play', headers: () => ({ 'x-team-token': token, 'x-client-id': clientId }) },
+    { onState, onStatus: connBadge },
+  );
 }
 
 function onState(v) {
   if (view && v.sessionId === view.sessionId && v.rev < view.rev) return; // 오래된 상태 무시
+  // 서버가 저장된 게임을 읽고 '이 토큰은 없다'고 확인한 경우에만 (교사가 연결 해제 / 전체 초기화)
+  // 인터넷이 끊긴 경우는 여기까지 오지 않으므로 토큰이 지워지지 않음
   if (v.tokenRejected && token) {
     token = '';
+    reconnecting = false;
     storage.del(TOKEN_KEY);
-    toast('기업 연결이 초기화되었어요. 기업을 다시 선택해 주세요.');
-    startStream();
+    storage.del(NAME_KEY);
+    toast('기업 연결이 초기화되었어요. 기업을 다시 선택해 주세요.', { ms: 4500 });
+    screenKey = '';
+    live.refresh();
     return;
+  }
+  if (v.me) {
+    storage.set(NAME_KEY, v.me.name);
+    if (reconnecting) {
+      reconnecting = false;
+      connBadge('recovered');
+    }
   }
   view = v;
   render();
@@ -147,8 +182,10 @@ async function claim(teamId) {
     const r = await api('/api/play/claim', { teamId });
     token = r.token;
     storage.set(TOKEN_KEY, token);
+    storage.set(NAME_KEY, c.name);
     screenKey = '';
-    startStream();
+    if (r.view) onState(r.view);
+    live.refresh();
   } catch (e) {
     toast(e.message, { error: true, ms: 4500 });
   } finally {
@@ -171,8 +208,9 @@ function renderIntro(v) {
       await api('/api/play/leave', { token });
       token = '';
       storage.del(TOKEN_KEY);
+      storage.del(NAME_KEY);
       screenKey = '';
-      startStream();
+      live.refresh();
     } catch (e) {
       toast(e.message, { error: true });
     }
@@ -503,4 +541,4 @@ function renderReflectionDone(v) {
     </section>`;
 }
 
-startStream();
+startLive();

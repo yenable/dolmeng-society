@@ -91,12 +91,10 @@ export const GAME_CONFIG = {
 
 // 서버 운영 설정 (밸런스와 무관)
 export const SERVER_CONFIG = {
-  PORT: Number(process.env.PORT) || 3000,
-  // 교사용 PIN — 환경변수 ADMIN_PIN 으로 바꾸거나 여기서 수정하세요.
-  ADMIN_PIN: process.env.ADMIN_PIN || '2580',
-  DATA_FILE: process.env.DATA_FILE || 'data/state.json',
-  // 사회 영향 영상. 이 경로에 파일을 넣기만 하면 됩니다. 없으면 대체 슬라이드가 나옵니다.
-  VIDEO_FILE: 'public/videos/social-impact.mp4',
-  VIDEO_URL: '/videos/social-impact.mp4',
-  HEARTBEAT_MS: 15_000,
+  // 교사용 PIN — Vercel 환경변수 ADMIN_PIN 으로 바꾸세요. (브라우저로는 전송되지 않음)
+  get ADMIN_PIN() {
+    return process.env.ADMIN_PIN || '2580';
+  },
+  // 학생 노트북이 이 시간 안에 신호를 보냈으면 '접속 중'으로 표시
+  PRESENCE_WINDOW_MS: 20_000,
 };

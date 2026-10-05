@@ -1,35 +1,43 @@
-// 교실 TV 화면 /display — 교사가 /admin 에서 진행하면 자동으로 바뀝니다. (조작 버튼 없음)
-import { $, $$, esc, won, signedWon, signed, medal, connectStream, netBanner, animateNumber, fitText } from './common.js';
+// 교실 TV 화면 /display — 교사가 /admin 에서 진행하면 자동으로 바뀝니다. (기본은 보기 전용)
+// /display?presenter=1 : 교사 PIN 입력 후 PPT 프레젠터 리모컨(키보드)으로 앞뒤 진행
+import { $, $$, esc, won, signedWon, signed, medal, connectLive, netBanner, animateNumber, fitText, api } from './common.js';
+import { unlockAudio, setMuted, typeClick, newsSting, bell } from './sfx.js';
 
-const PREVIEW = new URLSearchParams(location.search).has('preview'); // 어드민 미리보기용 (음소거)
+const params = new URLSearchParams(location.search);
+const PREVIEW = params.has('preview'); // 어드민 미리보기용 (음소거, 조작 없음)
+const PRESENTER = params.get('presenter') === '1' && !PREVIEW;
 const stage = $('#stage');
 let view = null;
 let lastKey = '';
-let lastVideoNonce = null;
+let live = null;
 
 const remPx = () => parseFloat(getComputedStyle(document.documentElement).fontSize);
+setMuted(PREVIEW);
 
-// ── 시작 버튼: 한 번 클릭하면 이후 영상 소리 재생이 허용됨 ─────────────
+// ── 시작 버튼: 한 번 클릭하면 전체화면 + 이후 효과음 재생이 허용됨 ─────────────
 const starter = $('#starter');
 if (!PREVIEW) {
-  starter.classList.remove('hidden');
+  if (!PRESENTER) starter.classList.remove('hidden');
   starter.addEventListener('click', (e) => {
     e.stopPropagation();
     starter.classList.add('hidden');
+    unlockAudio();
     document.documentElement.requestFullscreen?.().catch(() => {});
   });
-  document.addEventListener('click', () => starter.classList.add('hidden'));
+  document.addEventListener('click', () => {
+    unlockAudio();
+    starter.classList.add('hidden');
+  });
   document.addEventListener('dblclick', () => {
     if (document.fullscreenElement) document.exitFullscreen?.();
     else document.documentElement.requestFullscreen?.().catch(() => {});
   });
 }
 
-connectStream({ role: 'display' }, { onState, onStatus: PREVIEW ? () => {} : netBanner });
+live = connectLive({ role: 'display' }, { onState, onStatus: PREVIEW ? () => {} : netBanner });
 
 function onState(v) {
   if (view && v.sessionId === view.sessionId && v.rev < view.rev) return;
-  if (lastVideoNonce === null || (view && v.sessionId !== view.sessionId)) lastVideoNonce = v.video?.nonce ?? 0;
   const prev = view;
   view = v;
   const k = v.step.kind;
@@ -39,15 +47,45 @@ function onState(v) {
     submittedCount: ['meeting', 'reflection'].includes(k) ? 0 : v.submittedCount,
     submittedTeams: 0,
     companies: 0,
-    video: v.video ? v.video.available : 0,
   });
   if (key !== lastKey) {
     lastKey = key;
+    cancelTyping();
     render(v, prev);
   }
   updateLive(v);
-  handleVideo(v);
 }
+
+// ── 타이핑 효과 (뉴스 제목) ─────────────────────────────
+let typeSeq = 0;
+const cancelTyping = () => {
+  typeSeq += 1;
+};
+function typeText(el, text, { cps = 11, sound = true } = {}) {
+  const my = typeSeq;
+  const chars = [...text];
+  el.textContent = '';
+  el.classList.add('typing');
+  return new Promise((resolve) => {
+    let i = 0;
+    const tick = () => {
+      if (my !== typeSeq || !el.isConnected) return resolve(false);
+      i += 1;
+      el.textContent = chars.slice(0, i).join('');
+      const ch = chars[i - 1];
+      if (sound && ch.trim()) typeClick();
+      if (i >= chars.length) {
+        el.classList.remove('typing');
+        if (sound) bell();
+        return resolve(true);
+      }
+      const base = 1000 / cps;
+      setTimeout(tick, base * (ch === ' ' ? 1.5 : /[.…,!?]/.test(ch) ? 2.2 : 0.75 + Math.random() * 0.5));
+    };
+    setTimeout(tick, 1000 / cps);
+  });
+}
+const later = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function topbar(v, right = '') {
   return `<div class="topbar"><div class="brand"><i></i>돌멩민국 슬랑이 시장</div>${right ? `<div class="pill">${right}</div>` : ''}</div>`;
@@ -192,38 +230,69 @@ const RENDER = {
       <p class="blackout-2">기업의 선택은<br>기업 안에서만 끝나지 않았습니다.</p></div>`;
   },
 
-  news(v) {
+  // 뉴스: 장면 1 = 속보 시그널 + 제목 타이핑, 장면 2(다음 클릭) = 기사 내용
+  news(v, prev) {
     const n = v.news;
     if (!n) {
       stage.innerHTML = '<div class="center"></div>';
       return;
     }
+    const sameStep = prev && prev.sessionId === v.sessionId && prev.step.id === v.step.id && $('.news h1', stage);
+    const detailHtml = () => `
+      <div class="lines">${n.lines.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
+      <div class="chips">${n.companies.map((c) => `<span class="chip"><span class="cdot" style="--c:${c.color}"></span>${esc(c.name)} <small>${esc(c.note)}</small></span>`).join('')}</div>`;
+    const tickerText = `돌멩민국 경제뉴스 · ${esc(n.headline)}${n.lines[0] ? ` · ${esc(n.lines[0])}` : ''}`;
+    if (sameStep) {
+      // 같은 뉴스 안에서 제목 ↔ 기사 내용만 바꿈 (제목을 다시 타이핑하지 않음)
+      const h1 = $('.news h1', stage);
+      h1.classList.remove('typing');
+      h1.textContent = n.headline;
+      $('#news-detail').innerHTML = v.newsDetail ? detailHtml() : '';
+      $('#news-detail').classList.toggle('now', !!v.newsDetail);
+      $('.ticker span', stage).innerHTML = tickerText;
+      return;
+    }
     stage.innerHTML = `${topbar(v, '돌멩민국 경제뉴스')}
       <div class="news">
         <div class="tagline"><span class="live">속보</span><span>[${esc(n.tag)}]</span><span class="cat">${esc(n.category)}</span></div>
-        <h1>${esc(n.headline)}</h1>
-        <div class="lines">${n.lines.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
-        <div class="chips">${n.companies.map((c) => `<span class="chip"><span class="cdot" style="--c:${c.color}"></span>${esc(c.name)} <small>${esc(c.note)}</small></span>`).join('')}</div>
+        <h1 class="typed">${v.newsDetail ? esc(n.headline) : ''}</h1>
+        <div id="news-detail">${v.newsDetail ? detailHtml() : ''}</div>
       </div>
-      <div class="ticker"><span>돌멩민국 경제뉴스 · ${esc(n.headline)} · ${esc(n.lines[0])}</span></div>`;
+      <div class="ticker"><span>${tickerText}</span></div>`;
+    if (!v.newsDetail) {
+      // 처음 들어온 뉴스: 속보 시그널 → 제목 타이핑
+      newsSting();
+      later(700).then(() => typeText($('.news h1', stage), n.headline));
+    }
   },
 
-  video(v) {
-    if (v.video?.available) {
-      stage.innerHTML = `<div class="video-wrap"><video id="vid" src="${esc(v.video.url)}" preload="auto" playsinline ${PREVIEW ? 'muted' : ''}></video></div>`;
-      $('#vid').addEventListener('error', () => {
-        view.video.available = false;
-        RENDER.video(view);
-      });
-      return;
-    }
+  // 사회면: 영상 대신 신문 사회면 슬라이드. 오늘의 주요 기사 제목이 차례로 타이핑됨
+  async paper(v) {
     const heads = v.headlines ?? [];
-    stage.innerHTML = `${topbar(v, '돌멩민국 경제뉴스')}
-      <div class="center fallback">
-        <div class="fb-tag"><span class="live">LIVE</span>돌멩민국 경제뉴스</div>
-        <h1>오늘의 주요 소식</h1>
-        <ul>${heads.length ? heads.map((h, i) => `<li style="animation-delay:${0.5 + i * 0.6}s"><small>${esc(h.category)}</small>${esc(h.headline)}</li>`).join('') : '<li>오늘 돌멩민국 슬랑이 시장에는 큰 사건이 없었습니다.</li>'}</ul>
-      </div>`;
+    const d = new Date();
+    stage.innerHTML = `${topbar(v, '돌멩일보 사회면')}
+      <div class="paper-wrap"><article class="paper">
+        <header class="masthead">
+          <div class="mh-side">제 1 호</div>
+          <div class="mh-title">돌멩일보</div>
+          <div class="mh-side">${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일</div>
+        </header>
+        <div class="section-bar"><span>사회</span><span>오늘의 주요 소식</span></div>
+        <div class="paper-body">
+          ${heads.length
+            ? heads.map((h, i) => `<section class="article ${i === 0 ? 'lead' : ''}"><span class="kicker">${esc(h.category)}</span><h2 data-head="${esc(h.headline)}"></h2></section>`).join('')
+            : '<section class="article lead"><span class="kicker">사회</span><h2 data-head="오늘 돌멩민국 슬랑이 시장에는 큰 사건이 없었습니다."></h2></section>'}
+        </div>
+      </article></div>`;
+    const my = typeSeq;
+    newsSting();
+    await later(800);
+    for (const h of $$('.paper h2[data-head]', stage)) {
+      if (my !== typeSeq) return;
+      h.closest('.article').classList.add('in');
+      await typeText(h, h.dataset.head, { cps: 13 });
+      await later(500);
+    }
   },
 
   score(v, prev) {
@@ -231,16 +300,18 @@ const RENDER = {
     const items = sc.items;
     const cur = items.length ? items[items.length - 1].after : sc.start;
     const isStep = prev && prev.step.id === v.step.id && prev.score && prev.score.revealIndex === sc.revealIndex - 1;
-    const newest = isStep && items.length ? items[items.length - 1] : null;
+    // 감점 항목이 하나 새로 나온 장면 (최종 장면에서는 숫자를 다시 깎지 않음)
+    const newest = isStep && items.length && sc.revealIndex <= sc.total ? items[items.length - 1] : null;
+    const finalNow = isStep && sc.done;
     stage.innerHTML = `${topbar(v, '사회적 영향')}
-      <div class="score">
+      <div class="score ${sc.done ? 'is-final' : ''}">
         <div class="score-left">
           <div class="lbl">돌멩민국 사회점수</div>
-          <div class="score-num num ${cur < 0 ? 'neg' : ''}" id="snum">${signed(newest ? newest.before : cur).replace('+', '')}</div>
-          <div class="final ${sc.done && sc.total ? 'show' : ''}">최종 사회점수</div>
+          <div class="score-num num ${cur < 0 ? 'neg' : ''} ${finalNow ? 'final-pop' : ''}" id="snum">${signed(newest ? newest.before : cur).replace('+', '')}</div>
+          <div class="final ${sc.done ? 'show' : ''}">최종 사회점수</div>
         </div>
         <div class="score-items ${sc.total > 8 ? 'dense' : sc.total > 5 ? 'compact' : ''}">
-          ${sc.total === 0 ? '<div class="score-none">기업들의 선택으로 줄어든 사회점수가 없습니다.</div>' : ''}
+          ${sc.total === 0 && sc.done ? '<div class="score-none">기업들의 선택으로 줄어든 사회점수가 없습니다.</div>' : ''}
           ${items.map((it, i) => `
             <div class="sitem ${newest && i === items.length - 1 ? 'new' : ''}">
               <span class="ct ${it.category}">${esc(it.categoryLabel)}</span>
@@ -334,32 +405,143 @@ function updateLive(v) {
   }).join('');
 }
 
-function handleVideo(v) {
-  if (!v.video) return;
-  const el = $('#vid');
-  if (v.video.nonce === lastVideoNonce) return;
-  lastVideoNonce = v.video.nonce;
-  if (!el) return;
-  if (v.video.command === 'play') {
-    el.currentTime = 0;
-    el.muted = PREVIEW;
-    el.play().catch(() => {
-      el.muted = true;
-      el.play().catch(() => {});
-      showHint('브라우저가 소리를 막아 음소거로 재생 중입니다. TV 화면을 한 번 클릭하면 다음부터 소리가 나옵니다.');
-    });
-  } else if (v.video.command === 'stop') {
-    el.pause();
+// TV 하단에 잠깐 뜨는 안내 (프레젠터로 넘길 수 없을 때 등)
+function tvNotice(lines, ms = 3800) {
+  let el = $('#tv-notice');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'tv-notice';
+    el.className = 'tv-notice';
+    document.body.appendChild(el);
   }
+  el.innerHTML = lines.map((l, i) => (i === 0 ? `<b>${esc(l)}</b>` : `<span>${esc(l)}</span>`)).join('');
+  el.classList.add('show');
+  clearTimeout(tvNotice.t);
+  tvNotice.t = setTimeout(() => el.classList.remove('show'), ms);
 }
 
-function showHint(msg) {
-  if (PREVIEW) return;
-  const h = document.createElement('div');
-  h.className = 'hint';
-  h.textContent = msg;
-  document.body.appendChild(h);
-  setTimeout(() => h.remove(), 6000);
+// ── 프레젠터 모드: /display?presenter=1 ─────────────────────────────
+//  교사 PIN 확인 후에만 키 입력이 진행 명령이 됨. 교사 콘솔의 [다음]/[이전]과 같은 서버 명령을 '안전 모드'로 호출:
+//  학생이 아직 결정 중인 회의 단계에서는 넘어가지 않음 (강제 진행은 교사 콘솔에서만).
+if (PRESENTER) {
+  const PIN_KEY = 'slangi.presenterPin';
+  const NEXT_KEYS = new Set(['PageDown', 'ArrowRight', 'Enter', ' ', 'Spacebar']);
+  const PREV_KEYS = new Set(['PageUp', 'ArrowLeft', 'Backspace']);
+  const LOCK_MS = 600; // 한 번 누르면 한 장면만: 이 시간 안의 추가 입력·키 반복은 무시
+  let pin = '';
+  let authed = false;
+  let inflight = false;
+  let lockUntil = 0;
+
+  const badge = document.createElement('div');
+  badge.className = 'presenter-badge hidden';
+  badge.innerHTML = '<span class="pdot"></span>PRESENTER<span class="pkeys">‹ 이전 · 다음 ›</span>';
+  document.body.appendChild(badge);
+  const setBadge = (state) => {
+    badge.classList.toggle('busy', state === 'busy');
+    badge.classList.toggle('err', state === 'err');
+  };
+
+  const gate = document.createElement('div');
+  gate.className = 'pin-gate hidden';
+  gate.innerHTML = `
+    <form class="pin-box" autocomplete="off">
+      <h2>프레젠터 모드</h2>
+      <p>교사 PIN을 입력하면 리모컨(→ ← PageDown PageUp)으로 화면을 넘길 수 있어요.</p>
+      <input type="password" inputmode="numeric" placeholder="PIN" aria-label="교사 PIN">
+      <button type="submit">시작하기 (전체화면)</button>
+      <p class="pin-err"></p>
+      <a href="/display">보기 전용 TV 화면으로</a>
+    </form>`;
+  document.body.appendChild(gate);
+  const input = $('input', gate);
+
+  async function login(p, { silent = false } = {}) {
+    try {
+      await api('/api/admin/login', {}, { 'x-admin-pin': p });
+      pin = p;
+      authed = true;
+      try {
+        sessionStorage.setItem(PIN_KEY, p);
+      } catch { /* noop */ }
+      gate.classList.add('hidden');
+      badge.classList.remove('hidden');
+      setBadge('ok');
+      return true;
+    } catch (e) {
+      if (e.status === 401 || e.status === 429) {
+        try {
+          sessionStorage.removeItem(PIN_KEY);
+        } catch { /* noop */ }
+        authed = false;
+      }
+      if (!silent) $('.pin-err', gate).textContent = e.message;
+      return false;
+    }
+  }
+  function showGate() {
+    authed = false;
+    badge.classList.add('hidden');
+    gate.classList.remove('hidden');
+    setTimeout(() => input.focus(), 50);
+  }
+  $('form', gate).addEventListener('submit', async (e) => {
+    e.preventDefault();
+    unlockAudio();
+    document.documentElement.requestFullscreen?.().catch(() => {});
+    if (await login(input.value.trim())) input.value = '';
+  });
+
+  let saved = '';
+  try {
+    saved = sessionStorage.getItem(PIN_KEY) || '';
+  } catch { /* noop */ }
+  if (saved) {
+    login(saved, { silent: true }).then((ok) => {
+      if (!ok && !authed) showGate();
+    });
+  } else showGate();
+
+  async function go(dir) {
+    if (!view) return;
+    setBadge('busy');
+    inflight = true;
+    try {
+      const r = await api(
+        '/api/admin/action',
+        { action: dir, presenter: true, from: view.step.id, fromReveal: view.reveal?.index ?? null },
+        { 'x-admin-pin': pin },
+      );
+      setBadge('ok');
+      if (r.view) onState(r.view);
+    } catch (e) {
+      setBadge('err');
+      setTimeout(() => setBadge('ok'), 1200);
+      if (e.status === 423) tvNotice([e.message, '강제 진행은 교사 화면에서 할 수 있습니다.']);
+      else if (e.status === 401) showGate();
+      else if (e.status === 409) live.refresh(); // 교사 콘솔에서 이미 넘김 → 화면만 최신으로
+      else tvNotice(['잠시 연결이 원활하지 않아요.', '한 번 더 눌러 주세요.'], 2500);
+    } finally {
+      inflight = false;
+    }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (!authed || !gate.classList.contains('hidden')) return;
+    const dir = NEXT_KEYS.has(e.key) ? 'next' : PREV_KEYS.has(e.key) ? 'prev' : null;
+    if (!dir) return;
+    e.preventDefault(); // 스크롤·뒤로가기 등 브라우저 기본 동작 막기
+    e.stopPropagation();
+    unlockAudio();
+    if (e.repeat || inflight || Date.now() < lockUntil) return;
+    lockUntil = Date.now() + LOCK_MS;
+    go(dir);
+  }, true);
+}
+
+if (!PRESENTER) {
+  // 보기 전용 TV: 키보드로 수업 상태를 바꾸지 않음. (클릭/키 입력은 효과음 허용용으로만 사용)
+  document.addEventListener('keydown', () => unlockAudio());
 }
 
 function confetti() {

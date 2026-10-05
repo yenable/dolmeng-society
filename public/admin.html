@@ -24,7 +24,8 @@
       <div class="title"><b>교사 콘솔</b><span class="muted">돌멩민국 슬랑이 시장</span></div>
       <div class="links">
         <a href="/display" target="_blank" rel="noopener">TV 화면 열기 ↗</a>
-        <a href="/play" target="_blank" rel="noopener">학생 화면 ↗</a>
+        <a href="/display?presenter=1" target="_blank" rel="noopener" title="TV 컴퓨터에서 PPT 리모컨으로 진행할 때">TV 프레젠터 모드 ↗</a>
+        <a href="/" target="_blank" rel="noopener">학생 화면 ↗</a>
         <span class="secret" title="학생에게 보이지 않는 값">숨은 사회점수 <b id="top-score">100</b></span>
         <button class="btn ghost small" id="logout">나가기</button>
       </div>
@@ -89,7 +90,7 @@
 
         <section class="card">
           <div class="card-head"><h2>설정</h2></div>
-          <label class="check"><input type="checkbox" id="keys"> 키보드·프레젠터 리모컨으로 진행 (→ / PageDown 다음, ← / PageUp 이전)</label>
+          <label class="check"><input type="checkbox" id="keys"> 이 교사 화면에서 키보드·리모컨으로 진행 (→ / PageDown 다음, ← / PageUp 이전) — 미제출 경고는 그대로 확인</label>
           <div class="reset">
             <label class="check"><input type="checkbox" id="keep-claims" checked> 모둠 접속은 유지</label>
             <button class="btn danger small" id="reset">전체 초기화</button>

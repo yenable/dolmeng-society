@@ -1,5 +1,5 @@
 // 교사 콘솔 /admin — 모든 진행은 여기서 버튼으로만 (자동 진행 없음)
-import { $, $$, esc, won, signedWon, fmt, connectStream, api, toast, netBanner, storage } from './common.js';
+import { $, $$, esc, won, signedWon, fmt, connectLive, api, toast, netBanner, storage } from './common.js';
 
 const PIN_KEY = 'slangi.adminPin';
 let pin = storage.get(PIN_KEY) || '';
@@ -15,7 +15,14 @@ async function tryLogin(p) {
   $('#login').classList.add('hidden');
   $('#app').classList.remove('hidden');
   stream?.close();
-  stream = connectStream({ role: 'admin', pin }, { onState, onStatus: netBanner });
+  stream = connectLive({ role: 'admin', headers: () => ({ 'x-admin-pin': pin }) }, {
+    onState,
+    onStatus: netBanner,
+    onAuthError: () => {
+      stream?.close();
+      showLogin();
+    },
+  });
   fitPreview();
 }
 function showLogin() {
@@ -36,8 +43,15 @@ $('#logout').addEventListener('click', () => {
   stream?.close();
   showLogin();
 });
-if (pin) tryLogin(pin).catch(showLogin);
-else showLogin();
+if (pin) {
+  tryLogin(pin).catch((e) => {
+    if (e.status === 401 || e.status === 429) return showLogin();
+    // 인터넷 문제로 확인을 못 한 경우: 저장된 PIN 으로 잠시 뒤 다시 시도
+    toast(e.message, { error: true });
+    showLogin();
+    $('#pin').value = pin;
+  });
+} else showLogin();
 
 // ── 명령 ─────────────────────────────────────────────
 async function act(action, body = {}, { silent = false } = {}) {
@@ -95,20 +109,16 @@ function renderTop(v) {
 function renderNav(v) {
   const st = v.step;
   const na = v.nextAction;
-  const scoreProg = st.kind === 'score' ? ` (${v.revealIndex} / ${v.scoreItemsTotal} 항목 공개)` : '';
+  let scoreProg = '';
+  if (st.kind === 'score') {
+    scoreProg = v.revealIndex > v.scoreItemsTotal ? ' (최종 사회점수)' : ` (${v.revealIndex} / ${v.scoreItemsTotal} 항목 공개)`;
+  }
+  if (st.kind === 'news') scoreProg = v.revealIndex ? ' (기사 내용)' : ' (제목)';
   const computed = st.round && v.rounds[st.round]?.computed;
   const idx = v.steps.findIndex((x) => x.current);
   let extra = '';
   if (na?.warning) extra += `<div class="warn">⚠ ${esc(na.warning)}</div>`;
   if (computed && ['meeting', 'responses'].includes(st.kind)) extra += '<div class="info">이 라운드는 이미 결과가 계산되었습니다. 다시 계산되지 않습니다.</div>';
-  if (st.kind === 'video') {
-    extra += `<div class="video-ctl">
-      <button class="btn accent" id="v-play" ${v.video.available ? '' : 'disabled'}>▶ 영상 재생${v.video.nonce ? ' (처음부터)' : ''}</button>
-      <button class="btn ghost" id="v-stop" ${v.video.available ? '' : 'disabled'}>■ 정지</button>
-      <span class="muted">${v.video.available
-        ? '재생이 끝나면 마지막 화면에서 멈춥니다. 교사가 [다음]을 눌러야 넘어갑니다.'
-        : '영상 파일이 없어 TV에 대체 뉴스 슬라이드가 표시됩니다. (public/videos/social-impact.mp4 에 넣으면 자동 사용)'}</span></div>`;
-  }
   if (st.kind === 'meeting' || st.kind === 'reflection') {
     const n = st.kind === 'reflection' ? v.reflections.filter((r) => r.submitted).length : Object.values(v.submissions[st.round]).filter(Boolean).length;
     extra = `<div class="info">제출 현황: <b>${n} / 5</b></div>${extra}`;
@@ -126,8 +136,6 @@ function renderNav(v) {
     <div class="progress">${v.steps.filter((x) => x.available).map((x) => `<i class="${x.current ? 'cur' : x.index < idx ? 'done' : ''}" title="${esc(x.label)}"></i>`).join('')}</div>`;
   $('#next').addEventListener('click', goNext);
   $('#prev').addEventListener('click', goPrev);
-  $('#v-play')?.addEventListener('click', () => act('video', { command: 'play' }));
-  $('#v-stop')?.addEventListener('click', () => act('video', { command: 'stop' }));
 }
 
 function connCell(t) {
@@ -192,7 +200,7 @@ function renderTeams(v) {
   }));
   $$('[data-release]').forEach((b) => b.addEventListener('click', () => {
     const t = v.teams.find((x) => x.id === Number(b.dataset.release));
-    if (confirm(`${t.name}의 노트북 연결을 해제할까요?\n게임 기록은 그대로 남고, 학생이 /play 에서 이 기업을 다시 선택하면 이어서 할 수 있습니다.`)) act('release', { teamId: t.id });
+    if (confirm(`${t.name}의 노트북 연결을 해제할까요?\n게임 기록은 그대로 남고, 학생이 사이트 첫 화면에서 이 기업을 다시 선택하면 이어서 할 수 있습니다.`)) act('release', { teamId: t.id });
   }));
 }
 

@@ -31,7 +31,7 @@ export const STEPS = (() => {
     { id: 'NEWS_CONSUMER', kind: 'news', news: 'consumer', dark: true, label: '뉴스 · 소비자 보호', enterLabel: '소비자 뉴스' },
     { id: 'NEWS_ENVIRONMENT', kind: 'news', news: 'environment', dark: true, label: '뉴스 · 환경', enterLabel: '환경 뉴스' },
     { id: 'NEWS_FAIRNESS', kind: 'news', news: 'fairness', dark: true, label: '뉴스 · 공정 경쟁', enterLabel: '공정 경쟁 뉴스' },
-    { id: 'SOCIAL_VIDEO', kind: 'video', dark: true, label: '경제뉴스 영상', enterLabel: '영상 화면으로' },
+    { id: 'SOCIAL_PAPER', kind: 'paper', dark: true, label: '사회면 · 오늘의 주요 소식', enterLabel: '사회면 주요 소식' },
     { id: 'SOCIAL_SCORE_REVEAL', kind: 'score', dark: true, label: '돌멩민국 사회점수 공개', enterLabel: '사회점수 공개' },
     { id: 'REFLECTION', kind: 'reflection', label: '정리 · 다시 경영한다면?', enterLabel: '정리 활동 시작 (학생 화면 열기)' },
     { id: 'REFLECTION_RESPONSES', kind: 'reflectionResponses', label: '정리 · 바꾼 선택과 이유 공개', enterLabel: '바꾼 선택과 이유 공개' },
@@ -44,6 +44,10 @@ const stepPublic = (st) => ({ id: st.id, kind: st.kind, round: st.round ?? null,
 
 const DECISION_ROUND = { price: 1, ad: 2, production: 3, collusion: 4 };
 const TOTAL = TEAM_IDS.length;
+const STATE_VERSION = 2;
+
+// 학생 재접속 토큰: 브라우저에는 원문, 서버 상태·DB에는 해시만 저장
+export const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
 
 // ── 유틸 ────────────────────────────────────────────────────────────
 function mulberry32(a) {
@@ -80,7 +84,7 @@ export function createState(keepTeams = null) {
     const prev = keepTeams?.[id];
     teams[id] = {
       id,
-      token: prev?.token ?? null,
+      tokenHash: prev?.tokenHash ?? null,
       virtual: prev?.virtual ?? false,
       claimedAt: prev?.claimedAt ?? null,
       cash: C.STARTING_CASH,
@@ -90,7 +94,7 @@ export function createState(keepTeams = null) {
     };
   }
   return {
-    version: 1,
+    version: STATE_VERSION,
     sessionId: crypto.randomUUID(),
     createdAt: Date.now(),
     rev: 1,
@@ -98,7 +102,6 @@ export function createState(keepTeams = null) {
     variance,
     stepId: 'INTRO',
     revealIndex: 0,
-    video: { nonce: 0, command: 'idle' },
     teams,
     submissions: { 1: {}, 2: {}, 3: {}, 4: {} },
     rounds: {},
@@ -130,7 +133,7 @@ export const SCENARIO_LIST = Object.entries(SCENARIOS).map(([key, v]) => ({ key,
 // =====================================================================
 export class GameEngine {
   constructor(state) {
-    this.state = state && state.version === 1 && state.teams ? state : createState();
+    this.state = state && state.version === STATE_VERSION && state.teams ? state : createState();
   }
 
   get step() {
@@ -150,21 +153,24 @@ export class GameEngine {
 
   teamIdByToken(token) {
     if (!token) return null;
-    const t = Object.values(this.state.teams).find((x) => x.token && x.token === token);
+    const h = hashToken(token);
+    const t = Object.values(this.state.teams).find((x) => x.tokenHash && x.tokenHash === h);
     return t ? t.id : null;
   }
 
-  claim(teamId, conns) {
+  // 원문 토큰을 돌려줌 (상태에는 해시만 남음)
+  claim(teamId) {
     const t = this.state.teams[Number(teamId)];
     if (!t) throw new GameError('기업을 다시 선택해 주세요.');
-    if (t.token && !t.virtual) {
+    if (t.tokenHash && !t.virtual) {
       throw new GameError(`${withJosa(companyName(t.id), '은')} 이미 다른 노트북에서 선택했습니다. 잘못 선택되었다면 선생님께 말씀해 주세요.`, 409);
     }
-    t.token = crypto.randomBytes(16).toString('hex');
+    const token = crypto.randomBytes(24).toString('hex');
+    t.tokenHash = hashToken(token);
     t.virtual = false;
     t.claimedAt = Date.now();
     this.log(`${companyName(t.id)} 접속`);
-    return t.token;
+    return token;
   }
 
   leave(teamId) {
@@ -175,7 +181,7 @@ export class GameEngine {
   release(teamId) {
     const t = this.state.teams[Number(teamId)];
     if (!t) throw new GameError('없는 기업입니다.');
-    t.token = null;
+    t.tokenHash = null;
     t.virtual = false;
     t.claimedAt = null;
     this.log(`${companyName(t.id)} 연결 해제`);
@@ -270,16 +276,37 @@ export class GameEngine {
     return null;
   }
 
+  // 한 단계 안에서 클릭마다 나뉘어 보이는 장면 수 (0이면 나뉘지 않음)
+  //   news : 0 = 제목(타이핑) → 1 = 기사 내용
+  //   score: 0 = 시작 점수 → 1..N = 감점 항목 → N+1 = 최종 사회점수
+  revealTotal(st = this.step) {
+    if (st.kind === 'news') return 1;
+    if (st.kind === 'score') return this.scoreItems().length + 1;
+    return 0;
+  }
+
   checkFrom(from, fromReveal) {
     if (from && from !== this.state.stepId) throw new GameError('이미 다른 단계로 진행되었습니다. 화면을 확인해 주세요.', 409);
-    if (fromReveal !== undefined && fromReveal !== null && this.step.kind === 'score' && Number(fromReveal) !== this.state.revealIndex) {
+    if (fromReveal !== undefined && fromReveal !== null && this.revealTotal() > 0 && Number(fromReveal) !== this.state.revealIndex) {
       throw new GameError('이미 진행되었습니다.', 409);
     }
   }
 
-  next(from, fromReveal) {
+  // 프레젠터 리모컨(안전 모드): 학생이 아직 결정 중이면 넘기지 않음. 강제 진행은 교사 콘솔에서만.
+  presenterBlock(dir) {
+    const st = this.step;
+    const s = this.state;
+    const open = st.round && !s.rounds[st.round]?.computed && TEAM_IDS.some((id) => !s.submissions[st.round][id]);
+    if (open && (st.kind === 'meeting' || (st.kind === 'responses' && dir > 0))) return '아직 결정 중인 기업이 있습니다.';
+    if (st.kind === 'reflection' && TEAM_IDS.some((id) => !s.reflections[id])) return '아직 정리 활동을 쓰고 있는 기업이 있습니다.';
+    return null;
+  }
+
+  next(from, fromReveal, { safe = false } = {}) {
     this.checkFrom(from, fromReveal);
-    if (this.step.kind === 'score' && this.state.revealIndex < this.scoreItems().length) {
+    const block = safe && this.presenterBlock(+1);
+    if (block) throw new GameError(block, 423);
+    if (this.state.revealIndex < this.revealTotal()) {
       this.state.revealIndex += 1;
       return;
     }
@@ -287,9 +314,11 @@ export class GameEngine {
     if (nxt) this.enter(nxt.id, +1);
   }
 
-  prev(from, fromReveal) {
+  prev(from, fromReveal, { safe = false } = {}) {
     this.checkFrom(from, fromReveal);
-    if (this.step.kind === 'score' && this.state.revealIndex > 0) {
+    const block = safe && this.presenterBlock(-1);
+    if (block) throw new GameError(block, 423);
+    if (this.state.revealIndex > 0) {
       this.state.revealIndex -= 1;
       return;
     }
@@ -316,15 +345,8 @@ export class GameEngine {
       if (st.index >= STEP_BY_ID[`ROUND${r}_RESULT`].index) this.computeRound(r);
     }
     this.state.stepId = st.id;
-    this.state.revealIndex = st.kind === 'score' && dir < 0 ? this.scoreItems().length : 0;
-    if (st.kind === 'video') this.state.video = { nonce: this.state.video.nonce, command: 'idle' };
+    this.state.revealIndex = dir < 0 ? this.revealTotal(st) : 0;
     this.log(`진행: ${st.label}`);
-  }
-
-  videoCommand(command) {
-    if (!['play', 'stop'].includes(command)) throw new GameError('잘못된 명령');
-    if (this.step.kind !== 'video') throw new GameError('영상 단계에서만 재생할 수 있습니다.');
-    this.state.video = { nonce: this.state.video.nonce + 1, command };
   }
 
   // ── 시장 계산 (라운드당 정확히 1번, idempotent) ────────────────────
@@ -483,7 +505,7 @@ export class GameEngine {
   companiesPublic(conns) {
     return COMPANIES.map((c) => {
       const t = this.state.teams[c.id];
-      return { id: c.id, name: c.name, color: c.color, claimed: !!t.token, connected: (conns[c.id] || 0) > 0 || t.virtual };
+      return { id: c.id, name: c.name, color: c.color, claimed: !!t.tokenHash, connected: (conns[c.id] || 0) > 0 || t.virtual };
     });
   }
 
@@ -536,10 +558,6 @@ export class GameEngine {
     return { count: col.count, total: TOTAL, members: col.members.map((id) => ({ id, name: companyName(id), color: colorOf(id) })) };
   }
 
-  videoPublic(videoAvailable, videoUrl) {
-    return { available: videoAvailable, url: videoUrl, nonce: this.state.video.nonce, command: this.state.video.command };
-  }
-
   reflectionsPublic() {
     return COMPANIES.map((c) => {
       const f = this.state.reflections[c.id];
@@ -554,7 +572,11 @@ export class GameEngine {
     });
   }
 
-  displayView(conns, media) {
+  headlines() {
+    return Object.values(this.news()).filter(Boolean).map((n) => ({ category: n.category, headline: n.headline }));
+  }
+
+  displayView(conns = {}) {
     const st = this.step;
     const s = this.state;
     const v = { ...this.base('display'), companies: this.companiesPublic(conns), submittedCount: this.submittedCount(), totalTeams: TOTAL };
@@ -571,19 +593,22 @@ export class GameEngine {
       v.standings = this.standingsPublic(4);
       v.collusion = this.collusionPublic();
     }
-    if (st.kind === 'news') v.news = this.news()[st.news];
-    if (st.kind === 'video') {
-      v.video = this.videoPublic(media.videoAvailable, media.videoUrl);
-      v.headlines = Object.values(this.news()).filter(Boolean).map((n) => ({ category: n.category, headline: n.headline }));
+    if (this.revealTotal() > 0) v.reveal = { index: s.revealIndex, total: this.revealTotal() };
+    if (st.kind === 'news') {
+      const n = this.news()[st.news];
+      // 제목 장면에서는 기사 내용을 아직 보내지 않음
+      v.news = n && s.revealIndex < 1 ? { ...n, lines: [], companies: [] } : n;
+      v.newsDetail = s.revealIndex >= 1;
     }
+    if (st.kind === 'paper') v.headlines = this.headlines();
     if (st.kind === 'score') {
       const items = this.scoreItems();
       v.score = {
         start: C.SOCIAL_SCORE_START,
-        items: items.slice(0, s.revealIndex),
+        items: items.slice(0, Math.min(s.revealIndex, items.length)),
         total: items.length,
         revealIndex: s.revealIndex,
-        done: s.revealIndex >= items.length,
+        done: s.revealIndex > items.length,
       };
     }
     if (st.kind === 'reflectionResponses') v.reflections = this.reflectionsPublic();
@@ -591,7 +616,7 @@ export class GameEngine {
     return v;
   }
 
-  teamView(teamId, conns, { tokenRejected = false } = {}) {
+  teamView(teamId, conns = {}, { tokenRejected = false } = {}) {
     const s = this.state;
     const st = this.step;
     const v = { ...this.base('play'), companies: this.companiesPublic(conns), totalTeams: TOTAL, tokenRejected };
@@ -646,7 +671,9 @@ export class GameEngine {
     if (st.kind === 'score') {
       const total = this.scoreItems().length;
       if (s.revealIndex < total) return { label: `감점 항목 보여주기 (${s.revealIndex + 1} / ${total})`, toLabel: '사회점수 다음 항목', warning: null };
+      if (s.revealIndex === total) return { label: '최종 사회점수 보여주기', toLabel: '최종 사회점수', warning: null };
     }
+    if (st.kind === 'news' && s.revealIndex < 1) return { label: '기사 내용 보여주기', toLabel: '뉴스 기사 내용', warning: null };
     const nxt = this.neighborStep(+1);
     if (!nxt) return null;
     let warning = null;
@@ -666,14 +693,15 @@ export class GameEngine {
     return { label: nxt.enterLabel ?? nxt.label, toLabel: nxt.label, toId: nxt.id, warning };
   }
 
-  adminView(conns, media) {
+  adminView(conns = {}) {
     const s = this.state;
     const st = this.step;
-    const prv = st.kind === 'score' && s.revealIndex > 0 ? { label: '사회점수 이전 항목' } : this.neighborStep(-1);
+    const prv = s.revealIndex > 0 ? { label: st.kind === 'news' ? '뉴스 제목 장면' : '사회점수 이전 장면' } : this.neighborStep(-1);
     return {
       ...this.base('admin'),
       createdAt: s.createdAt,
       revealIndex: s.revealIndex,
+      revealTotal: this.revealTotal(),
       scoreItemsTotal: this.scoreItems().length,
       nextAction: this.nextActionInfo(),
       prevLabel: prv?.label ?? null,
@@ -688,7 +716,7 @@ export class GameEngine {
         const standing = s.standings?.find((x) => x.teamId === id);
         return {
           id, name: companyName(id), color: colorOf(id),
-          claimed: !!t.token, virtual: t.virtual, connections: conns[id] || 0,
+          claimed: !!t.tokenHash, virtual: t.virtual, connections: conns[id] || 0,
           cash: t.cash, revenueTotal: t.revenueTotal, unitsTotal: t.unitsTotal,
           profit: t.cash - C.STARTING_CASH, rank: standing?.rank ?? null,
           choices: Object.fromEntries(Object.entries(DECISION_ROUND).map(([k, r]) => [k, t.choices[k] == null ? null : optionLabel(r, t.choices[k])])),
@@ -705,7 +733,6 @@ export class GameEngine {
       },
       news: this.news(),
       reflections: this.reflectionsPublic(),
-      video: this.videoPublic(media.videoAvailable, media.videoUrl),
       scenarios: SCENARIO_LIST,
       config: C,
       log: s.log.slice(0, 30),
@@ -716,8 +743,8 @@ export class GameEngine {
   testAutoJoin() {
     for (const id of TEAM_IDS) {
       const t = this.state.teams[id];
-      if (!t.token) {
-        t.token = `virtual-${crypto.randomBytes(8).toString('hex')}`;
+      if (!t.tokenHash) {
+        t.tokenHash = `virtual-${crypto.randomBytes(8).toString('hex')}`;
         t.virtual = true;
         t.claimedAt = Date.now();
       }
