@@ -1,11 +1,13 @@
-// 교실 TV 화면 /display — 교사가 /admin 에서 진행하면 자동으로 바뀝니다. (기본은 보기 전용)
-// /display?presenter=1 : 교사 PIN 입력 후 PPT 프레젠터 리모컨(키보드)으로 앞뒤 진행
-import { $, $$, esc, won, signedWon, signed, medal, connectLive, netBanner, animateNumber, fitText, api } from './common.js';
-import { unlockAudio, setMuted, typeClick, newsSting, bell } from './sfx.js';
+// 교실 TV 화면 /display — 교사가 /admin 에서 진행하면 자동으로 바뀝니다.
+// 이 화면에서도 키보드·PPT 프레젠터 리모컨으로 앞뒤 진행 가능 (교사 PIN 한 번 확인, 이 컴퓨터에 기억)
+//   /display?presenter=1 : 예전 주소 호환 (처음부터 PIN 입력 창)
+//   /display?preview=1   : 교사 콘솔 미리보기 (음소거, 조작 없음)
+import { $, $$, esc, won, signedWon, medal, connectLive, netBanner, animateNumber, fitText, api, storage } from './common.js';
+import { unlockAudio, setMuted, typeClick, newsSting, bell, drumroll, accent, fanfare } from './sfx.js';
 
 const params = new URLSearchParams(location.search);
-const PREVIEW = params.has('preview'); // 어드민 미리보기용 (음소거, 조작 없음)
-const PRESENTER = params.get('presenter') === '1' && !PREVIEW;
+const PREVIEW = params.has('preview');
+const PRESENTER_URL = params.get('presenter') === '1' && !PREVIEW;
 const stage = $('#stage');
 let view = null;
 let lastKey = '';
@@ -14,24 +16,53 @@ let live = null;
 const remPx = () => parseFloat(getComputedStyle(document.documentElement).fontSize);
 setMuted(PREVIEW);
 
-// ── 시작 버튼: 한 번 클릭하면 전체화면 + 이후 효과음 재생이 허용됨 ─────────────
+// ── 시작 안내: 한 번 클릭(또는 키 입력)하면 이후 효과음 재생이 허용됨 ─────────────
 const starter = $('#starter');
+const hideStarter = () => starter.classList.add('hidden');
 if (!PREVIEW) {
-  if (!PRESENTER) starter.classList.remove('hidden');
+  if (!PRESENTER_URL) starter.classList.remove('hidden');
   starter.addEventListener('click', (e) => {
     e.stopPropagation();
-    starter.classList.add('hidden');
+    hideStarter();
     unlockAudio();
     document.documentElement.requestFullscreen?.().catch(() => {});
   });
   document.addEventListener('click', () => {
     unlockAudio();
-    starter.classList.add('hidden');
+    hideStarter();
   });
-  document.addEventListener('dblclick', () => {
-    if (document.fullscreenElement) document.exitFullscreen?.();
-    else document.documentElement.requestFullscreen?.().catch(() => {});
+  document.addEventListener('dblclick', () => toggleFullscreen());
+  setupFullscreenButton();
+}
+
+function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) document.exitFullscreen?.()?.catch?.(() => {});
+    else document.documentElement.requestFullscreen?.()?.catch?.(() => {});
+  } catch { /* noop */ }
+}
+
+// ── 전체화면 버튼 (항상 오른쪽 아래) ─────────────────────────────────────
+function setupFullscreenButton() {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'fs-btn';
+  btn.tabIndex = -1; // 키보드 포커스를 받지 않음 → Enter/Space 가 버튼을 누르지 않고 '다음'으로만 동작
+  const sync = () => {
+    btn.textContent = document.fullscreenElement ? '⤢ 전체화면 종료' : '⛶ 전체화면';
+  };
+  btn.addEventListener('mousedown', (e) => e.preventDefault()); // 클릭해도 포커스가 가지 않게
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    unlockAudio();
+    hideStarter();
+    toggleFullscreen();
+    btn.blur();
   });
+  btn.addEventListener('dblclick', (e) => e.stopPropagation());
+  document.addEventListener('fullscreenchange', sync);
+  sync();
+  document.body.appendChild(btn);
 }
 
 live = connectLive({ role: 'display' }, { onState, onStatus: PREVIEW ? () => {} : netBanner });
@@ -50,26 +81,36 @@ function onState(v) {
   });
   if (key !== lastKey) {
     lastKey = key;
-    cancelTyping();
+    cancelScene();
     render(v, prev);
   }
   updateLive(v);
 }
 
-// ── 타이핑 효과 (뉴스 제목) ─────────────────────────────
-let typeSeq = 0;
-const cancelTyping = () => {
-  typeSeq += 1;
+// ── 장면 연출 타이머: 화면이 바뀌면 이전 장면의 예약된 연출은 모두 취소 ─────────
+let sceneSeq = 0;
+const cancelScene = () => {
+  sceneSeq += 1;
 };
+const later = (ms) => new Promise((r) => setTimeout(r, ms));
+// 지금 장면이 그대로일 때만 실행
+function at(ms, fn) {
+  const my = sceneSeq;
+  setTimeout(() => {
+    if (my === sceneSeq) fn();
+  }, ms);
+}
+
+// 타이핑 효과 (뉴스 제목, 사회면)
 function typeText(el, text, { cps = 11, sound = true } = {}) {
-  const my = typeSeq;
+  const my = sceneSeq;
   const chars = [...text];
   el.textContent = '';
   el.classList.add('typing');
   return new Promise((resolve) => {
     let i = 0;
     const tick = () => {
-      if (my !== typeSeq || !el.isConnected) return resolve(false);
+      if (my !== sceneSeq || !el.isConnected) return resolve(false);
       i += 1;
       el.textContent = chars.slice(0, i).join('');
       const ch = chars[i - 1];
@@ -85,7 +126,13 @@ function typeText(el, text, { cps = 11, sound = true } = {}) {
     setTimeout(tick, 1000 / cps);
   });
 }
-const later = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const sameStep = (v, prev) => !!prev && prev.sessionId === v.sessionId && prev.step.id === v.step.id;
+const cameBack = (v, prev) => !!prev && prev.sessionId === v.sessionId && prev.step.index > v.step.index;
+const scoreText = (n) => {
+  const r = Math.round(n);
+  return r < 0 ? `−${Math.abs(r)}` : String(r);
+};
 
 function topbar(v, right = '') {
   return `<div class="topbar"><div class="brand"><i></i>돌멩민국 슬랑이 시장</div>${right ? `<div class="pill">${right}</div>` : ''}</div>`;
@@ -211,17 +258,32 @@ const RENDER = {
     }, hasBefore ? 1700 : 600);
   },
 
-  final(v) {
+  // 최종 이윤 순위: 시상식처럼 빈 무대 → 두구두구 → 3위 → 2위 → 두구두구 → 1위(가장 강하게) → 4·5위
+  final(v, prev) {
     const st = v.standings;
     const [a, b, c, ...rest] = st;
     const pod = (x, cls) => x ? `<div class="pod ${cls}" style="--c:${x.color}">
       <div class="md">${medal(x.rank) || `${x.rank}위`}</div><div class="nm">${esc(x.name)}</div>
       <div class="pf num">${signedWon(x.profit)}</div>${cls === 'p1' ? '<div class="cheer">축하합니다! 🎉</div>' : ''}</div>` : '<div></div>';
+    // 같은 화면을 다시 그리는 경우(연결 갱신 등)에는 연출 없이 바로 전체 표시
+    const instant = sameStep(v, prev) || cameBack(v, prev);
     stage.innerHTML = `${topbar(v, '최종 결과')}
-      <div class="final-head"><div class="sub">돌멩민국 슬랑이 시장</div><h1>최종 기업 이윤 순위</h1></div>
-      <div class="podium">${pod(b, 'p2')}${pod(a, 'p1')}${pod(c, 'p3')}</div>
-      <div class="rest">${rest.map((x) => `<div class="rr" style="--c:${x.color}"><span>${x.rank}위</span><span>${esc(x.name)}</span><span class="num">${signedWon(x.profit)}</span></div>`).join('')}</div>`;
-    confetti();
+      <div class="final-wrap ${instant ? 'instant' : ''}">
+        <div class="final-head"><div class="sub">돌멩민국 슬랑이 시장</div><h1>최종 기업 이윤 순위</h1></div>
+        <div class="podium">${pod(b, 'p2')}${pod(a, 'p1')}${pod(c, 'p3')}</div>
+        <div class="rest">${rest.map((x, i) => `<div class="rr" style="--c:${x.color}; animation-delay:${i * 0.15}s"><span>${x.rank}위</span><span>${esc(x.name)}</span><span class="num">${signedWon(x.profit)}</span></div>`).join('')}</div>
+      </div>`;
+    const show = (sel) => $(sel, stage)?.classList.add('in');
+    if (instant) {
+      ['.pod.p3', '.pod.p2', '.pod.p1', '.rest'].forEach(show);
+      return;
+    }
+    at(900, () => drumroll(1.1));
+    at(2100, () => { show('.pod.p3'); accent(); });
+    at(2750, () => { show('.pod.p2'); accent(); });
+    at(3050, () => drumroll(0.75));
+    at(3900, () => { show('.pod.p1'); fanfare(); confetti(); });
+    at(4700, () => show('.rest'));
   },
 
   blackout() {
@@ -230,40 +292,44 @@ const RENDER = {
       <p class="blackout-2">기업의 선택은<br>기업 안에서만 끝나지 않았습니다.</p></div>`;
   },
 
-  // 뉴스: 장면 1 = 속보 시그널 + 제목 타이핑, 장면 2(다음 클릭) = 기사 내용
+  // 뉴스: 속보 시그널 → 제목 타이핑 → 잠시 뒤 기사 내용·관련 기업 자동 등장 → 그대로 정지
+  //   (다음 기사로는 교사가 → 를 눌러야 이동)
   news(v, prev) {
     const n = v.news;
     if (!n) {
       stage.innerHTML = '<div class="center"></div>';
       return;
     }
-    const sameStep = prev && prev.sessionId === v.sessionId && prev.step.id === v.step.id && $('.news h1', stage);
-    const detailHtml = () => `
-      <div class="lines">${n.lines.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
-      <div class="chips">${n.companies.map((c) => `<span class="chip"><span class="cdot" style="--c:${c.color}"></span>${esc(c.name)} <small>${esc(c.note)}</small></span>`).join('')}</div>`;
-    const tickerText = `돌멩민국 경제뉴스 · ${esc(n.headline)}${n.lines[0] ? ` · ${esc(n.lines[0])}` : ''}`;
-    if (sameStep) {
-      // 같은 뉴스 안에서 제목 ↔ 기사 내용만 바꿈 (제목을 다시 타이핑하지 않음)
+    if (sameStep(v, prev) && $('.news', stage)) {
+      // 같은 뉴스 화면: 티커·제목 DOM 을 다시 만들지 않음 (티커 애니메이션이 처음부터 다시 시작되지 않게)
       const h1 = $('.news h1', stage);
-      h1.classList.remove('typing');
-      h1.textContent = n.headline;
-      $('#news-detail').innerHTML = v.newsDetail ? detailHtml() : '';
-      $('#news-detail').classList.toggle('now', !!v.newsDetail);
-      $('.ticker span', stage).innerHTML = tickerText;
+      if (h1.textContent !== n.headline) {
+        h1.classList.remove('typing');
+        h1.textContent = n.headline;
+      }
+      $('#news-detail').classList.add('show');
       return;
     }
+    const back = cameBack(v, prev); // 뒤로 돌아온 경우: 연출 없이 바로 전체
+    const tickerText = `돌멩민국 경제뉴스 · ${esc(n.headline)}${n.lines[0] ? ` · ${esc(n.lines[0])}` : ''}`;
     stage.innerHTML = `${topbar(v, '돌멩민국 경제뉴스')}
       <div class="news">
         <div class="tagline"><span class="live">속보</span><span>[${esc(n.tag)}]</span><span class="cat">${esc(n.category)}</span></div>
-        <h1 class="typed">${v.newsDetail ? esc(n.headline) : ''}</h1>
-        <div id="news-detail">${v.newsDetail ? detailHtml() : ''}</div>
+        <h1 class="typed">${back ? esc(n.headline) : ''}</h1>
+        <div id="news-detail" class="${back ? 'show instant' : ''}">
+          <div class="lines">${n.lines.map((l, i) => `<p style="animation-delay:${i * 0.6}s">${esc(l)}</p>`).join('')}</div>
+          <div class="chips" style="animation-delay:${0.3 + n.lines.length * 0.6}s">${n.companies.map((c) => `<span class="chip"><span class="cdot" style="--c:${c.color}"></span>${esc(c.name)} <small>${esc(c.note)}</small></span>`).join('')}</div>
+        </div>
       </div>
-      <div class="ticker"><span>${tickerText}</span></div>`;
-    if (!v.newsDetail) {
-      // 처음 들어온 뉴스: 속보 시그널 → 제목 타이핑
-      newsSting();
-      later(700).then(() => typeText($('.news h1', stage), n.headline));
-    }
+      <div class="ticker"><div class="ticker-track">${tickerText}</div></div>`;
+    if (back) return;
+    const my = sceneSeq;
+    newsSting();
+    later(700)
+      .then(() => (my === sceneSeq ? typeText($('.news h1', stage), n.headline) : false))
+      .then((typed) => {
+        if (typed) at(1000, () => $('#news-detail')?.classList.add('show'));
+      });
   },
 
   // 사회면: 영상 대신 신문 사회면 슬라이드. 오늘의 주요 기사 제목이 차례로 타이핑됨
@@ -284,64 +350,33 @@ const RENDER = {
             : '<section class="article lead"><span class="kicker">사회</span><h2 data-head="오늘 돌멩민국 슬랑이 시장에는 큰 사건이 없었습니다."></h2></section>'}
         </div>
       </article></div>`;
-    const my = typeSeq;
+    const my = sceneSeq;
     newsSting();
     await later(800);
     for (const h of $$('.paper h2[data-head]', stage)) {
-      if (my !== typeSeq) return;
+      if (my !== sceneSeq) return;
       h.closest('.article').classList.add('in');
       await typeText(h, h.dataset.head, { cps: 13 });
       await later(500);
     }
   },
 
+  // 사회점수: 100 → (클릭) 소비자 보호 합계 → 환경 합계 → 공정 경쟁 합계 → 최종 점수 중앙 이동 + 발문
   score(v, prev) {
     const sc = v.score;
-    const items = sc.items;
-    const cur = items.length ? items[items.length - 1].after : sc.start;
-    const isStep = prev && prev.step.id === v.step.id && prev.score && prev.score.revealIndex === sc.revealIndex - 1;
-    // 감점 항목이 하나 새로 나온 장면 (최종 장면에서는 숫자를 다시 깎지 않음)
-    const newest = isStep && items.length && sc.revealIndex <= sc.total ? items[items.length - 1] : null;
-    const finalNow = isStep && sc.done;
-    stage.innerHTML = `${topbar(v, '사회적 영향')}
-      <div class="score ${sc.done ? 'is-final' : ''}">
-        <div class="score-left">
-          <div class="lbl">돌멩민국 사회점수</div>
-          <div class="score-num num ${cur < 0 ? 'neg' : ''} ${finalNow ? 'final-pop' : ''}" id="snum">${signed(newest ? newest.before : cur).replace('+', '')}</div>
-          <div class="final ${sc.done ? 'show' : ''}">최종 사회점수</div>
-        </div>
-        <div class="score-items ${sc.total > 8 ? 'dense' : sc.total > 5 ? 'compact' : ''}">
-          ${sc.total === 0 && sc.done ? '<div class="score-none">기업들의 선택으로 줄어든 사회점수가 없습니다.</div>' : ''}
-          ${items.map((it, i) => `
-            <div class="sitem ${newest && i === items.length - 1 ? 'new' : ''}">
-              <span class="ct ${it.category}">${esc(it.categoryLabel)}</span>
-              <span class="tt">${esc(it.title)}${it.companies.length ? `<small>${it.companies.map((c) => esc(c.name)).join(', ')}</small>` : ''}</span>
-              <span class="dl num">${signed(it.delta)}</span>
-            </div>`).join('')}
-        </div>
-      </div>`;
-    if (newest) {
-      const el = $('#snum');
-      setTimeout(() => {
-        el.classList.add('hit');
-        animateNumber(el, newest.before, newest.after, {
-          duration: 1400,
-          format: (n) => {
-            const r = Math.round(n);
-            el.classList.toggle('neg', r < 0);
-            return r < 0 ? `−${Math.abs(r)}` : String(r);
-          },
-        });
-      }, 700);
-    } else {
-      $('#snum').textContent = cur < 0 ? `−${Math.abs(cur)}` : String(cur);
+    const stepFwd = sameStep(v, prev) && prev.score && prev.score.revealIndex === sc.revealIndex - 1;
+    if (sc.done && stepFwd && $('.score', stage) && !$('.score.is-final', stage)) {
+      scoreToFinal(sc);
+      return;
     }
+    const newest = !sc.done && stepFwd && sc.categories.length ? sc.categories[sc.categories.length - 1] : null;
+    renderScore(v, sc, newest);
   },
 
   reflection(v) {
     stage.innerHTML = `${topbar(v, '정리')}
       <div class="center">
-        <div class="round-label">정리</div>
+        <div class="round-label">우리 기업의 선택 다시 생각하기</div>
         <h1 class="refl-title">다시 경영한다면?</h1>
         <p class="refl-q">우리 기업의 선택 중 하나를 바꾼다면?</p>
         <div class="meeting-count"><b id="cnt">${v.submittedCount}</b> / ${v.totalTeams} 기업 제출 완료</div>
@@ -369,6 +404,91 @@ const RENDER = {
   },
 };
 
+// ── 사회점수 화면 ─────────────────────────────────────────────────────
+function scoreCard(c, isNew) {
+  return `<div class="scat ${c.category} ${isNew ? 'new' : ''}">
+    <div class="scat-head"><span class="ct">${esc(c.label)}</span><span class="dl num">${scoreText(c.delta)}</span></div>
+    ${c.groups.map((g) => `<div class="sg">
+      <div class="sg-top"><b>${esc(g.label)}</b>${c.groups.length > 1 ? `<span class="sgd num">${scoreText(g.delta)}</span>` : ''}</div>
+      <small>${g.companies.map((x) => `<span class="cdot" style="--c:${x.color}"></span>${esc(x.name)}`).join('<em>·</em>')}</small>
+    </div>`).join('')}
+  </div>`;
+}
+
+function renderScore(v, sc, newest) {
+  const cats = sc.categories;
+  const cur = sc.done ? sc.final : cats.length ? cats[cats.length - 1].after : sc.start;
+  const noLoss = sc.done && sc.final >= sc.start;
+  stage.innerHTML = `${topbar(v, '사회적 영향')}
+    <div class="score ${sc.done ? 'is-final' : ''} ${noLoss ? 'no-loss' : ''}">
+      <div class="score-left">
+        <div class="lbl">돌멩민국 사회점수</div>
+        <div class="score-num num ${cur < 0 ? 'neg' : ''} ${sc.done && !noLoss ? 'red' : ''}" id="snum">${scoreText(newest ? newest.before : cur)}</div>
+      </div>
+      <div class="score-cats">
+        ${cats.length ? cats.map((c, i) => scoreCard(c, newest && i === cats.length - 1)).join('') : '<div class="score-empty">아직 감점 없음.</div>'}
+      </div>
+      ${scoreQuestions(sc)}
+    </div>`;
+  if (sc.done) {
+    at(300, () => $('.score-q', stage)?.classList.add('show'));
+    return;
+  }
+  if (newest) {
+    const el = $('#snum');
+    at(700, () => {
+      el.classList.add('hit');
+      animateNumber(el, newest.before, newest.after, {
+        duration: 1400,
+        format: (n) => {
+          el.classList.toggle('neg', Math.round(n) < 0);
+          return scoreText(n);
+        },
+      });
+    });
+  }
+}
+
+function scoreQuestions(sc) {
+  if (!sc.done) return '<div class="score-q"></div>';
+  if (sc.final >= sc.start) return '<div class="score-q"><p class="q-main">기업들의 선택으로 줄어든 사회점수가 없습니다.</p></div>';
+  return `<div class="score-q"><p class="q-main">${esc(sc.questions.main)}</p><p class="q-sub">${esc(sc.questions.sub)}</p></div>`;
+}
+
+// 최종 장면: 왼쪽에 있던 점수가 그대로 화면 가운데로 이동하며 커지고 빨간색으로 (FLIP) → 0.8초 뒤 발문
+function scoreToFinal(sc) {
+  const root = $('.score', stage);
+  const num = $('#snum');
+  const lbl = $('.score-left .lbl', stage);
+  cancelAnimationFrame(num._raf);
+  num.classList.remove('hit');
+  num.textContent = scoreText(sc.final);
+  root.querySelector('.score-q').outerHTML = scoreQuestions(sc);
+  const els = [lbl, num];
+  const first = els.map((el) => el.getBoundingClientRect());
+  root.classList.add('is-final');
+  if (sc.final >= sc.start) root.classList.add('no-loss');
+  const last = els.map((el) => el.getBoundingClientRect());
+  els.forEach((el, i) => {
+    const f = first[i];
+    const l = last[i];
+    const dx = f.left + f.width / 2 - (l.left + l.width / 2);
+    const dy = f.top + f.height / 2 - (l.top + l.height / 2);
+    const s = l.height ? f.height / l.height : 1;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
+  });
+  void root.offsetWidth; // 시작 위치를 먼저 그린 뒤
+  requestAnimationFrame(() => {
+    els.forEach((el) => {
+      el.style.transition = 'transform 1.3s cubic-bezier(.22,.8,.24,1), color 1s ease, text-shadow 1s ease';
+      el.style.transform = '';
+    });
+    if (sc.final < sc.start) num.classList.add('red');
+  });
+  at(1300 + 800, () => $('.score-q', stage)?.classList.add('show'));
+}
+
 function renderResponsesTable(v, title, sub) {
   const pred = !!v.roundInfo.prediction;
   stage.innerHTML = `${topbar(v, roundPill(v))}
@@ -378,7 +498,7 @@ function renderResponsesTable(v, title, sub) {
         <div class="resp-row ${r.choiceLabel ? '' : 'missing'}" style="--c:${r.color}; animation-delay:${i * 0.1}s">
           <div class="who">${esc(r.name)}</div>
           <div class="what ${r.choice === 'join' ? 'join' : ''}">${r.choiceLabel ? esc(r.choiceLabel) : '미제출'}</div>
-          <div class="why"><span>${r.choiceLabel && !r.byDefault ? `${esc(r.reason)} <b>때문입니다.</b>` : r.byDefault ? '(제출하지 않아 기본 선택 적용)' : ''}</span></div>
+          <div class="why"><span>${r.choiceLabel && !r.byDefault ? `${esc(r.reason)} <b>때문입니다.</b>` : ''}</span></div>
           ${pred ? `<div class="pred"><small>다른 기업 예상</small>${esc(r.predictionLabel ?? '-')}</div>` : ''}
         </div>`).join('')}
     </div>`;
@@ -405,7 +525,7 @@ function updateLive(v) {
   }).join('');
 }
 
-// TV 하단에 잠깐 뜨는 안내 (프레젠터로 넘길 수 없을 때 등)
+// TV 하단에 잠깐 뜨는 안내 (키보드로 넘길 수 없을 때 등)
 function tvNotice(lines, ms = 3800) {
   let el = $('#tv-notice');
   if (!el) {
@@ -420,22 +540,26 @@ function tvNotice(lines, ms = 3800) {
   tvNotice.t = setTimeout(() => el.classList.remove('show'), ms);
 }
 
-// ── 프레젠터 모드: /display?presenter=1 ─────────────────────────────
-//  교사 PIN 확인 후에만 키 입력이 진행 명령이 됨. 교사 콘솔의 [다음]/[이전]과 같은 서버 명령을 '안전 모드'로 호출:
-//  학생이 아직 결정 중인 회의 단계에서는 넘어가지 않음 (강제 진행은 교사 콘솔에서만).
-if (PRESENTER) {
-  const PIN_KEY = 'slangi.presenterPin';
+// ── 키보드·리모컨 진행 ─────────────────────────────────────────────────
+//  교사 콘솔의 [다음]/[이전]과 같은 서버 명령을 '안전 모드'로 호출 (클라이언트는 상태를 직접 바꾸지 않음):
+//  학생이 아직 결정 중인 회의·정리 단계에서는 넘어가지 않음 (강제 진행은 교사 콘솔에서만).
+//  교사 PIN 은 교사 콘솔과 같은 저장값을 사용 → 이 컴퓨터에서 교사 콘솔에 로그인했다면 다시 묻지 않음.
+if (!PREVIEW) setupKeyboardControl();
+
+function setupKeyboardControl() {
+  const PIN_KEY = 'slangi.adminPin';
   const NEXT_KEYS = new Set(['PageDown', 'ArrowRight', 'Enter', ' ', 'Spacebar']);
   const PREV_KEYS = new Set(['PageUp', 'ArrowLeft', 'Backspace']);
   const LOCK_MS = 600; // 한 번 누르면 한 장면만: 이 시간 안의 추가 입력·키 반복은 무시
-  let pin = '';
+  let pin = storage.get(PIN_KEY) || '';
   let authed = false;
+  let checking = null; // 저장된 PIN 확인 중
   let inflight = false;
   let lockUntil = 0;
 
   const badge = document.createElement('div');
   badge.className = 'presenter-badge hidden';
-  badge.innerHTML = '<span class="pdot"></span>PRESENTER<span class="pkeys">‹ 이전 · 다음 ›</span>';
+  badge.innerHTML = '<span class="pdot"></span>리모컨 진행<span class="pkeys">‹ 이전 · 다음 ›</span>';
   document.body.appendChild(badge);
   const setBadge = (state) => {
     badge.classList.toggle('busy', state === 'busy');
@@ -446,33 +570,30 @@ if (PRESENTER) {
   gate.className = 'pin-gate hidden';
   gate.innerHTML = `
     <form class="pin-box" autocomplete="off">
-      <h2>프레젠터 모드</h2>
-      <p>교사 PIN을 입력하면 리모컨(→ ← PageDown PageUp)으로 화면을 넘길 수 있어요.</p>
+      <h2>키보드·리모컨으로 진행</h2>
+      <p>교사 PIN을 한 번 입력하면 이 TV 화면에서 → ← PageDown PageUp 으로 넘길 수 있어요. (이 컴퓨터에 기억됩니다)</p>
       <input type="password" inputmode="numeric" placeholder="PIN" aria-label="교사 PIN">
       <button type="submit">시작하기 (전체화면)</button>
       <p class="pin-err"></p>
-      <a href="/display">보기 전용 TV 화면으로</a>
+      <button type="button" class="pin-cancel">닫기 (보기만 하기)</button>
     </form>`;
   document.body.appendChild(gate);
   const input = $('input', gate);
+  const gateOpen = () => !gate.classList.contains('hidden');
 
   async function login(p, { silent = false } = {}) {
     try {
       await api('/api/admin/login', {}, { 'x-admin-pin': p });
       pin = p;
       authed = true;
-      try {
-        sessionStorage.setItem(PIN_KEY, p);
-      } catch { /* noop */ }
+      storage.set(PIN_KEY, p);
       gate.classList.add('hidden');
       badge.classList.remove('hidden');
       setBadge('ok');
       return true;
     } catch (e) {
       if (e.status === 401 || e.status === 429) {
-        try {
-          sessionStorage.removeItem(PIN_KEY);
-        } catch { /* noop */ }
+        if (p === storage.get(PIN_KEY)) storage.del(PIN_KEY);
         authed = false;
       }
       if (!silent) $('.pin-err', gate).textContent = e.message;
@@ -482,25 +603,34 @@ if (PRESENTER) {
   function showGate() {
     authed = false;
     badge.classList.add('hidden');
+    $('.pin-err', gate).textContent = '';
     gate.classList.remove('hidden');
     setTimeout(() => input.focus(), 50);
   }
+  const hideGate = () => {
+    gate.classList.add('hidden');
+    input.blur();
+  };
   $('form', gate).addEventListener('submit', async (e) => {
     e.preventDefault();
     unlockAudio();
+    hideStarter();
     document.documentElement.requestFullscreen?.().catch(() => {});
     if (await login(input.value.trim())) input.value = '';
   });
+  $('.pin-cancel', gate).addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideGate();
+  });
+  gate.addEventListener('click', (e) => e.stopPropagation());
 
-  let saved = '';
-  try {
-    saved = sessionStorage.getItem(PIN_KEY) || '';
-  } catch { /* noop */ }
-  if (saved) {
-    login(saved, { silent: true }).then((ok) => {
-      if (!ok && !authed) showGate();
+  if (pin) {
+    checking = login(pin, { silent: true }).then((ok) => {
+      checking = null;
+      if (!ok && PRESENTER_URL) showGate();
+      return ok;
     });
-  } else showGate();
+  } else if (PRESENTER_URL) showGate();
 
   async function go(dir) {
     if (!view) return;
@@ -519,29 +649,32 @@ if (PRESENTER) {
       setTimeout(() => setBadge('ok'), 1200);
       if (e.status === 423) tvNotice([e.message, '강제 진행은 교사 화면에서 할 수 있습니다.']);
       else if (e.status === 401) showGate();
-      else if (e.status === 409) live.refresh(); // 교사 콘솔에서 이미 넘김 → 화면만 최신으로
-      else tvNotice(['잠시 연결이 원활하지 않아요.', '한 번 더 눌러 주세요.'], 2500);
+      else if (e.status === 409) {
+        live.refresh(); // 교사 콘솔에서 이미 넘김 → 화면만 최신으로
+        if (!/이미/.test(e.message)) tvNotice([e.message, '교사 화면에서 확인해 주세요.']);
+      } else tvNotice(['잠시 연결이 원활하지 않아요.', '한 번 더 눌러 주세요.'], 2500);
     } finally {
       inflight = false;
     }
   }
 
-  document.addEventListener('keydown', (e) => {
-    if (!authed || !gate.classList.contains('hidden')) return;
+  document.addEventListener('keydown', async (e) => {
+    if (gateOpen()) {
+      if (e.key === 'Escape') hideGate();
+      return; // PIN 입력 중에는 키가 입력창으로
+    }
     const dir = NEXT_KEYS.has(e.key) ? 'next' : PREV_KEYS.has(e.key) ? 'prev' : null;
+    unlockAudio();
+    hideStarter();
     if (!dir) return;
     e.preventDefault(); // 스크롤·뒤로가기 등 브라우저 기본 동작 막기
     e.stopPropagation();
-    unlockAudio();
     if (e.repeat || inflight || Date.now() < lockUntil) return;
     lockUntil = Date.now() + LOCK_MS;
+    if (!authed && checking) await checking;
+    if (!authed) return showGate();
     go(dir);
   }, true);
-}
-
-if (!PRESENTER) {
-  // 보기 전용 TV: 키보드로 수업 상태를 바꾸지 않음. (클릭/키 입력은 효과음 허용용으로만 사용)
-  document.addEventListener('keydown', () => unlockAudio());
 }
 
 function confetti() {
@@ -549,10 +682,10 @@ function confetti() {
   const box = document.createElement('div');
   box.className = 'confetti';
   const colors = ['#F0508A', '#16A36A', '#7C5CF2', '#E8860C', '#2F7BF0', '#f2a900'];
-  box.innerHTML = Array.from({ length: 90 }, () => {
+  box.innerHTML = Array.from({ length: 110 }, () => {
     const left = Math.random() * 100;
     const dur = 2.6 + Math.random() * 2.4;
-    const delay = 0.6 + Math.random() * 1.8;
+    const delay = Math.random() * 1.2;
     return `<i style="left:${left}%; background:${colors[Math.floor(Math.random() * colors.length)]}; animation-duration:${dur}s; animation-delay:${delay}s"></i>`;
   }).join('');
   stage.appendChild(box);

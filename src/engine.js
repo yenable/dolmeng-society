@@ -2,11 +2,11 @@
 import crypto from 'node:crypto';
 import { GAME_CONFIG as C } from './config.js';
 import {
-  COMPANIES, TEAM_IDS, ROUNDS, REFLECTION, CLOSING_TEXT, CATEGORY_LABELS, SAMPLE_REASONS,
+  COMPANIES, TEAM_IDS, ROUNDS, REFLECTION, CLOSING_TEXT, CATEGORY_LABELS, SAMPLE_REASONS, SCORE_QUESTIONS,
   optionOf, optionLabel, companyName,
 } from './content.js';
 import { buildNews } from './news.js';
-import { withJosa } from './josa.js';
+import { josa, withJosa, joinNamesJosa } from './josa.js';
 
 export class GameError extends Error {
   constructor(message, status = 400) {
@@ -33,7 +33,7 @@ export const STEPS = (() => {
     { id: 'NEWS_FAIRNESS', kind: 'news', news: 'fairness', dark: true, label: '뉴스 · 공정 경쟁', enterLabel: '공정 경쟁 뉴스' },
     { id: 'SOCIAL_PAPER', kind: 'paper', dark: true, label: '사회면 · 오늘의 주요 소식', enterLabel: '사회면 주요 소식' },
     { id: 'SOCIAL_SCORE_REVEAL', kind: 'score', dark: true, label: '돌멩민국 사회점수 공개', enterLabel: '사회점수 공개' },
-    { id: 'REFLECTION', kind: 'reflection', label: '정리 · 다시 경영한다면?', enterLabel: '정리 활동 시작 (학생 화면 열기)' },
+    { id: 'REFLECTION', kind: 'reflection', label: '정리 · 우리 기업의 선택 다시 생각하기', enterLabel: '우리 기업의 선택 다시 생각하기 (학생 화면 열기)' },
     { id: 'REFLECTION_RESPONSES', kind: 'reflectionResponses', label: '정리 · 바꾼 선택과 이유 공개', enterLabel: '바꾼 선택과 이유 공개' },
     { id: 'CLOSING', kind: 'closing', dark: true, label: '마무리 문장', enterLabel: '마무리 문장' },
   );
@@ -43,6 +43,8 @@ const STEP_BY_ID = Object.fromEntries(STEPS.map((s) => [s.id, s]));
 const stepPublic = (st) => ({ id: st.id, kind: st.kind, round: st.round ?? null, label: st.label, news: st.news ?? null, dark: !!st.dark, index: st.index });
 
 const DECISION_ROUND = { price: 1, ad: 2, production: 3, collusion: 4 };
+const DECISION_OBJECT = { 1: '가격을', 2: '광고 방법을', 3: '생산 방법을', 4: '공동 제안 참여 여부를' };
+const CATEGORY_ORDER = ['consumer', 'environment', 'fairness'];
 const TOTAL = TEAM_IDS.length;
 const STATE_VERSION = 2;
 
@@ -277,11 +279,10 @@ export class GameEngine {
   }
 
   // 한 단계 안에서 클릭마다 나뉘어 보이는 장면 수 (0이면 나뉘지 않음)
-  //   news : 0 = 제목(타이핑) → 1 = 기사 내용
-  //   score: 0 = 시작 점수 → 1..N = 감점 항목 → N+1 = 최종 사회점수
+  //   score: 0 = 시작 점수 → 1..N = 범주별 감점(소비자 보호·환경·공정 경쟁 중 감점 있는 범주만) → N+1 = 최종 사회점수 + 발문
+  //   (뉴스는 제목 타이핑 → 기사 내용이 TV에서 자동으로 이어지므로 나누지 않음)
   revealTotal(st = this.step) {
-    if (st.kind === 'news') return 1;
-    if (st.kind === 'score') return this.scoreItems().length + 1;
+    if (st.kind === 'score') return this.scoreCategories().length + 1;
     return 0;
   }
 
@@ -341,38 +342,38 @@ export class GameEngine {
   enter(stepId, dir) {
     const st = STEP_BY_ID[stepId];
     // 결과 단계에 도달하거나 넘어가면, 그 라운드까지 계산 (각 라운드 정확히 1번)
-    for (let r = 1; r <= 4; r++) {
-      if (st.index >= STEP_BY_ID[`ROUND${r}_RESULT`].index) this.computeRound(r);
-    }
+    // 미제출 기업이 있으면 아무것도 계산하지 않고 멈춤 (자동 기본값 없음 — 교사가 대신 지정해야 함)
+    const toCompute = [1, 2, 3, 4].filter((r) => st.index >= STEP_BY_ID[`ROUND${r}_RESULT`].index);
+    for (const r of toCompute) this.requireSubmissions(r);
+    for (const r of toCompute) this.computeRound(r);
     this.state.stepId = st.id;
     this.state.revealIndex = dir < 0 ? this.revealTotal(st) : 0;
     this.log(`진행: ${st.label}`);
   }
 
-  // ── 시장 계산 (라운드당 정확히 1번, idempotent) ────────────────────
-  applyDefault(round, id) {
-    const team = this.state.teams[id];
-    let value = C.DEFAULT_IF_MISSING[round];
-    let opt = optionOf(round, value);
-    if (!opt || (opt.cost || 0) > team.cash) {
-      const affordable = ROUNDS[round].options.filter((o) => (o.cost || 0) <= team.cash).sort((a, b) => (a.cost || 0) - (b.cost || 0));
-      opt = affordable[0] ?? optionOf(round, 'none') ?? ROUNDS[round].options[0];
-    }
-    const cost = Math.min(opt.cost || 0, team.cash);
-    team.cash -= cost;
-    this.state.submissions[round][id] = {
-      choice: opt.value, reason: '(미제출)', prediction: null, cost, submittedAt: Date.now(), byAdmin: false, byDefault: true,
-    };
-    this.log(`${companyName(id)} ${round}라운드 미제출 → 기본값 적용: ${opt.label}`);
+  // ── 미제출 확인 (자동 기본값 없음) ──────────────────────────────────
+  missingTeams(r) {
+    if (this.state.rounds[r]?.computed) return [];
+    return TEAM_IDS.filter((id) => !this.state.submissions[r][id]);
   }
 
+  missingMessage(r, missing = this.missingTeams(r)) {
+    return `${joinNamesJosa(missing.map(companyName), '이')} 아직 ${DECISION_OBJECT[r]} 선택하지 않았습니다. 강제 진행하려면 교사 대신 선택을 지정해 주세요.`;
+  }
+
+  requireSubmissions(r) {
+    const missing = this.missingTeams(r);
+    if (missing.length) throw new GameError(this.missingMessage(r, missing), 409);
+  }
+
+  // ── 시장 계산 (라운드당 정확히 1번, idempotent) ────────────────────
   computeRound(r) {
     const s = this.state;
     if (s.rounds[r]?.computed) return;
     for (let q = 1; q < r; q++) this.computeRound(q);
+    this.requireSubmissions(r);
 
     const subs = s.submissions[r];
-    for (const id of TEAM_IDS) if (!subs[id]) this.applyDefault(r, id);
     const key = ROUNDS[r].key;
     for (const id of TEAM_IDS) s.teams[id].choices[key] = subs[id].choice;
 
@@ -492,6 +493,55 @@ export class GameEngine {
     });
   }
 
+  // TV 사회점수 공개용: 기업별 사회 이벤트(원본은 그대로 보존)를 범주별 합계로 묶음. 감점 0인 범주는 건너뜀.
+  scoreCategories() {
+    const ev = this.state.socialEvents;
+    const chips = (ids) => ids.map((id) => ({ id, name: companyName(id), color: colorOf(id) }));
+    const cats = [];
+    let score = C.SOCIAL_SCORE_START;
+    for (const category of CATEGORY_ORDER) {
+      const list = ev.filter((e) => e.category === category);
+      const delta = list.reduce((a, e) => a + e.delta, 0);
+      if (!delta) continue;
+      let groups;
+      if (category === 'fairness') {
+        const ids = [...new Set(list.flatMap((e) => e.teamIds))].sort((a, b) => a - b);
+        groups = [{ label: `공동 가격 제안 참여 ${ids.length} / ${TOTAL} 기업`, count: ids.length, delta, companies: chips(ids) }];
+      } else {
+        const r = category === 'consumer' ? 2 : 3;
+        const causes = ROUNDS[r].options.map((o) => o.value).filter((v) => list.some((e) => e.cause === v));
+        groups = causes.map((cause) => {
+          const of = list.filter((e) => e.cause === cause);
+          const ids = of.flatMap((e) => e.teamIds).sort((a, b) => a - b);
+          const label = optionLabel(r, cause);
+          return {
+            label: category === 'consumer' ? `${label}${josa(label, '을')} 선택한 기업 ${ids.length}곳` : `${label} ${ids.length}곳`,
+            count: ids.length,
+            delta: of.reduce((a, e) => a + e.delta, 0),
+            companies: chips(ids),
+          };
+        });
+      }
+      const before = score;
+      score += delta;
+      cats.push({ category, label: CATEGORY_LABELS[category], groups, delta, before, after: score });
+    }
+    return cats;
+  }
+
+  // 사회점수 공개가 어디까지 왔는지 (교사 콘솔 표시용)
+  scorePhases() {
+    const cats = this.scoreCategories();
+    const idx = this.step.kind === 'score' ? this.state.revealIndex : -1;
+    const list = [{ key: 'start', label: '사회점수 시작', reveal: 0 }];
+    for (const category of CATEGORY_ORDER) {
+      const at = cats.findIndex((c) => c.category === category);
+      list.push({ key: category, label: `${CATEGORY_LABELS[category]} 공개`, reveal: at >= 0 ? at + 1 : null, skipped: at < 0 });
+    }
+    list.push({ key: 'final', label: '최종 발문', reveal: cats.length + 1 });
+    return list.map((p) => ({ ...p, current: p.reveal === idx, done: p.reveal != null && p.reveal < idx }));
+  }
+
   news() {
     return buildNews(this.state);
   }
@@ -594,21 +644,19 @@ export class GameEngine {
       v.collusion = this.collusionPublic();
     }
     if (this.revealTotal() > 0) v.reveal = { index: s.revealIndex, total: this.revealTotal() };
-    if (st.kind === 'news') {
-      const n = this.news()[st.news];
-      // 제목 장면에서는 기사 내용을 아직 보내지 않음
-      v.news = n && s.revealIndex < 1 ? { ...n, lines: [], companies: [] } : n;
-      v.newsDetail = s.revealIndex >= 1;
-    }
+    if (st.kind === 'news') v.news = this.news()[st.news];
     if (st.kind === 'paper') v.headlines = this.headlines();
     if (st.kind === 'score') {
-      const items = this.scoreItems();
+      const cats = this.scoreCategories();
+      const done = s.revealIndex > cats.length;
       v.score = {
         start: C.SOCIAL_SCORE_START,
-        items: items.slice(0, Math.min(s.revealIndex, items.length)),
-        total: items.length,
+        categories: cats.slice(0, Math.min(s.revealIndex, cats.length)),
+        total: cats.length,
         revealIndex: s.revealIndex,
-        done: s.revealIndex > items.length,
+        final: done ? this.socialScore() : null,
+        done,
+        questions: done ? SCORE_QUESTIONS : null,
       };
     }
     if (st.kind === 'reflectionResponses') v.reflections = this.reflectionsPublic();
@@ -669,40 +717,43 @@ export class GameEngine {
     const st = this.step;
     const s = this.state;
     if (st.kind === 'score') {
-      const total = this.scoreItems().length;
-      if (s.revealIndex < total) return { label: `감점 항목 보여주기 (${s.revealIndex + 1} / ${total})`, toLabel: '사회점수 다음 항목', warning: null };
-      if (s.revealIndex === total) return { label: '최종 사회점수 보여주기', toLabel: '최종 사회점수', warning: null };
+      const cats = this.scoreCategories();
+      if (s.revealIndex < cats.length) {
+        const c = cats[s.revealIndex];
+        return { label: `${c.label} 감점 공개 (${s.revealIndex + 1} / ${cats.length})`, toLabel: `사회점수 · ${c.label}`, warning: null };
+      }
+      if (s.revealIndex === cats.length) return { label: '최종 사회점수 · 발문 보여주기', toLabel: '최종 사회점수 · 발문', warning: null };
     }
-    if (st.kind === 'news' && s.revealIndex < 1) return { label: '기사 내용 보여주기', toLabel: '뉴스 기사 내용', warning: null };
     const nxt = this.neighborStep(+1);
     if (!nxt) return null;
     let warning = null;
-    if (st.round && (st.kind === 'meeting' || st.kind === 'responses') && !s.rounds[st.round]?.computed) {
-      const missing = TEAM_IDS.filter((id) => !s.submissions[st.round][id]).map(companyName);
-      if (missing.length) {
-        const def = optionLabel(st.round, C.DEFAULT_IF_MISSING[st.round]);
-        warning = st.kind === 'meeting'
-          ? `아직 제출하지 않은 기업: ${missing.join(', ')}`
-          : `미제출 기업(${missing.join(', ')})은 기본 선택 '${def}'이(가) 적용되어 계산됩니다.`;
+    let assign = null;
+    if (st.round && (st.kind === 'meeting' || st.kind === 'responses')) {
+      const missing = this.missingTeams(st.round);
+      if (missing.length && st.kind === 'meeting') warning = `아직 제출하지 않은 기업: ${missing.map(companyName).join(', ')}`;
+      if (missing.length && st.kind === 'responses') {
+        // 다음 단계에서 결과가 계산됨 → 미제출 기업의 선택을 교사가 지정해야 진행 가능 (자동 기본값 없음)
+        warning = this.missingMessage(st.round, missing);
+        assign = { round: st.round, teamIds: missing };
       }
     }
     if (st.kind === 'reflection') {
       const missing = TEAM_IDS.filter((id) => !s.reflections[id]).map(companyName);
       if (missing.length) warning = `아직 제출하지 않은 기업: ${missing.join(', ')}`;
     }
-    return { label: nxt.enterLabel ?? nxt.label, toLabel: nxt.label, toId: nxt.id, warning };
+    return { label: nxt.enterLabel ?? nxt.label, toLabel: nxt.label, toId: nxt.id, warning, assign };
   }
 
   adminView(conns = {}) {
     const s = this.state;
     const st = this.step;
-    const prv = s.revealIndex > 0 ? { label: st.kind === 'news' ? '뉴스 제목 장면' : '사회점수 이전 장면' } : this.neighborStep(-1);
+    const prv = s.revealIndex > 0 ? { label: '사회점수 이전 장면' } : this.neighborStep(-1);
     return {
       ...this.base('admin'),
       createdAt: s.createdAt,
       revealIndex: s.revealIndex,
       revealTotal: this.revealTotal(),
-      scoreItemsTotal: this.scoreItems().length,
+      scorePhases: this.scorePhases(),
       nextAction: this.nextActionInfo(),
       prevLabel: prv?.label ?? null,
       steps: STEPS.map((x) => ({

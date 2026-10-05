@@ -77,6 +77,8 @@ async function act(action, body = {}, { silent = false } = {}) {
 function goNext() {
   const v = view;
   if (!v?.nextAction) return;
+  // 미제출 기업이 있으면 자동 기본값 없이, 교사가 선택을 지정해야 결과를 계산할 수 있음
+  if (v.nextAction.assign) return openAssignDialog(v);
   if (v.nextAction.warning && !confirm(`${v.nextAction.warning}\n\n그래도 진행할까요?`)) return;
   act('next', { from: v.step.id, fromReveal: v.revealIndex });
 }
@@ -111,13 +113,17 @@ function renderNav(v) {
   const na = v.nextAction;
   let scoreProg = '';
   if (st.kind === 'score') {
-    scoreProg = v.revealIndex > v.scoreItemsTotal ? ' (최종 사회점수)' : ` (${v.revealIndex} / ${v.scoreItemsTotal} 항목 공개)`;
+    const cur = v.scorePhases.find((p) => p.current);
+    if (cur) scoreProg = ` (${cur.label})`;
   }
-  if (st.kind === 'news') scoreProg = v.revealIndex ? ' (기사 내용)' : ' (제목)';
   const computed = st.round && v.rounds[st.round]?.computed;
   const idx = v.steps.findIndex((x) => x.current);
   let extra = '';
   if (na?.warning) extra += `<div class="warn">⚠ ${esc(na.warning)}</div>`;
+  if (st.kind === 'score') {
+    // TV 사회점수 공개가 어디까지 왔는지 (TV 키보드 진행과 같은 단계)
+    extra += `<div class="phases">${v.scorePhases.map((p) => `<span class="ph ${p.current ? 'cur' : p.done ? 'done' : ''} ${p.skipped ? 'skip' : ''}">${esc(p.label)}${p.skipped ? '<small>감점 없음 · 건너뜀</small>' : ''}</span>`).join('<i>›</i>')}</div>`;
+  }
   if (computed && ['meeting', 'responses'].includes(st.kind)) extra += '<div class="info">이 라운드는 이미 결과가 계산되었습니다. 다시 계산되지 않습니다.</div>';
   if (st.kind === 'meeting' || st.kind === 'reflection') {
     const n = st.kind === 'reflection' ? v.reflections.filter((r) => r.submitted).length : Object.values(v.submissions[st.round]).filter(Boolean).length;
@@ -131,7 +137,7 @@ function renderNav(v) {
     ${extra}
     <div class="nav-btns">
       <button class="btn ghost prev" id="prev" ${v.prevLabel && !busy ? '' : 'disabled'}>◀ 이전</button>
-      <button class="btn next" id="next" ${na && !busy ? '' : 'disabled'}>${na ? esc(na.label) : '마지막 단계입니다'} ▶</button>
+      <button class="btn next" id="next" ${na && !busy ? '' : 'disabled'}>${na ? (na.assign ? '미제출 기업 선택 지정하고 ' : '') + esc(na.label) : '마지막 단계입니다'} ▶</button>
     </div>
     <div class="progress">${v.steps.filter((x) => x.available).map((x) => `<i class="${x.current ? 'cur' : x.index < idx ? 'done' : ''}" title="${esc(x.label)}"></i>`).join('')}</div>`;
   $('#next').addEventListener('click', goNext);
@@ -218,7 +224,7 @@ function renderSteps(v) {
   $('#steps').innerHTML = html;
   $$('#steps [data-step]').forEach((b) => b.addEventListener('click', () => {
     const s = v.steps.find((x) => x.id === b.dataset.step);
-    const extra = s.index > idx ? '\n(건너뛴 라운드의 미제출 모둠에는 기본 선택이 적용되어 계산됩니다)' : '';
+    const extra = s.index > idx ? '\n(건너뛴 라운드에 미제출 기업이 있으면 이동하지 않습니다. 먼저 [대신 제출]로 선택을 지정해 주세요)' : '';
     if (confirm(`'${s.label}' 단계로 이동할까요?${extra}`)) act('goto', { stepId: s.id });
   }));
   const cur = $('#steps li.cur');
@@ -274,10 +280,11 @@ function renderScenarios(v) {
 }
 
 // ── 대신 제출 대화상자 ─────────────────────────────────
-function openDialog(title, bodyHtml, onOk) {
+function openDialog(title, bodyHtml, onOk, { okLabel = '제출' } = {}) {
   const dlg = $('#dlg');
   $('#dlg-title').textContent = title;
   $('#dlg-body').innerHTML = bodyHtml;
+  $('#dlg-ok').textContent = okLabel;
   dlg.onclose = () => {
     if (dlg.returnValue === 'ok') onOk(new FormData($('#dlg-form')));
   };
@@ -305,6 +312,31 @@ function openSubmitDialog(teamId) {
   });
 }
 
+// 미제출 기업 선택 지정 → 바로 진행 (자동 기본값 없음)
+function openAssignDialog(v) {
+  const { round, teamIds } = v.nextAction.assign;
+  const ri = v.roundOptions[round];
+  const body = `
+    <p class="warn">${esc(v.nextAction.warning)}</p>
+    ${teamIds.map((id) => {
+      const t = v.teams.find((x) => x.id === id);
+      return `<fieldset class="assign">
+        <legend><span class="dot" style="--c:${t.color}"></span>${esc(t.name)} <span class="muted">현재 가진 돈 ${won(t.cash)}</span></legend>
+        <div class="radio-list">${ri.options.map((o) => `<label><input type="radio" name="t${id}" value="${esc(o.value)}" required ${(o.cost || 0) > t.cash ? 'disabled' : ''}>
+          ${esc(o.label)}${o.cost ? ` <span class="muted">(${won(o.cost)})</span>` : ''}</label>`).join('')}</div>
+      </fieldset>`;
+    }).join('')}`;
+  openDialog(`${round}라운드 · 미제출 기업 선택 지정`, body, (fd) => {
+    const assign = {};
+    for (const id of teamIds) {
+      const c = fd.get(`t${id}`);
+      if (!c) return toast('미제출 기업의 선택을 모두 지정해 주세요.', { error: true });
+      assign[id] = c;
+    }
+    act('next', { from: v.step.id, fromReveal: v.revealIndex, assign });
+  }, { okLabel: '지정하고 진행' });
+}
+
 function openReflectDialog(teamId) {
   const v = view;
   const t = v.teams.find((x) => x.id === teamId);
@@ -326,7 +358,7 @@ $$('[data-act]').forEach((b) => b.addEventListener('click', () => {
   act(a, { scenario: $('#scenario').value });
 }));
 $$('[data-goto]').forEach((b) => b.addEventListener('click', () => {
-  if (confirm('이동할까요? (계산되지 않은 라운드는 미제출 기본값으로 계산됩니다)')) act('goto', { stepId: b.dataset.goto });
+  if (confirm('이동할까요? (계산되지 않은 라운드에 미제출 기업이 있으면 이동하지 않습니다)')) act('goto', { stepId: b.dataset.goto });
 }));
 $('#reset').addEventListener('click', () => {
   const keep = $('#keep-claims').checked;

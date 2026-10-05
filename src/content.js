@@ -82,7 +82,7 @@ export const ROUNDS = {
     options: [
       { value: 'eco', label: '친환경 생산', desc: '환경에 미치는 영향을 줄이는 재료와 생산 방법을 사용합니다.' },
       { value: 'normal', label: '일반 생산', desc: '일반적인 재료와 생산 방법을 사용합니다.' },
-      { value: 'cheap', label: '비용 절감 생산', desc: '생산 과정을 간단하게 바꾸어 비용을 크게 줄입니다.' },
+      { value: 'cheap', label: '비용 절감 생산', desc: '환경에는 좋지 않지만, 생산 비용을 크게 줄일 수 있습니다.' },
     ].map((o) => ({ ...o, cost: C.PRODUCTION_COSTS[o.value], sentence: chose(o.label) })),
     hints: REASON_HINTS,
   },
@@ -114,15 +114,10 @@ export const ROUNDS = {
   },
 };
 
-// 미제출 기본값으로만 쓰이는 선택지(학생에게는 보이지 않음)
-export const HIDDEN_OPTIONS = {
-  2: { none: { value: 'none', label: '광고 안 함', cost: 0 } },
-};
-
 export function optionOf(round, value) {
   const r = ROUNDS[round];
   if (!r) return null;
-  return r.options.find((o) => String(o.value) === String(value)) ?? HIDDEN_OPTIONS[round]?.[value] ?? null;
+  return r.options.find((o) => String(o.value) === String(value)) ?? null;
 }
 export const optionLabel = (round, value) => optionOf(round, value)?.label ?? '-';
 
@@ -138,7 +133,13 @@ export const REFLECTION = {
   ],
 };
 
-export const CLOSING_TEXT = ['기업은 자유롭게 경제활동을 하지만,', '사회에 미치는 영향도 생각해야 합니다.'];
+// 최종 사회점수 장면의 발문 (정답·정의는 보여주지 않음 — 학생 발표와 교사 발문용 정지 화면)
+export const SCORE_QUESTIONS = {
+  main: '우리 기업들은 이윤을 높이기 위해 선택했는데, 왜 돌멩민국의 사회점수는 낮아졌을까요?',
+  sub: '기업의 선택은 누구에게 어떤 영향을 주었나요?',
+};
+
+export const CLOSING_TEXT =['기업은 자유롭게 경제활동을 하지만,', '사회에 미치는 영향도 생각해야 합니다.'];
 
 export const CATEGORY_LABELS = {
   consumer: '소비자 보호',

@@ -80,17 +80,32 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
     }
     const dup = await c.post('/api/play/submit', { token: tokens[1], round: r, choice: choices[1][r - 1], reason: '다시', prediction: 'most' });
     assert.equal(dup.body.already, true);
-    await c.admin('submitFor', { teamId: 5, round: r, choice: choices[5][r - 1], reason: '선생님 입력', prediction: 'few' });
+    if (r !== 2) await c.admin('submitFor', { teamId: 5, round: r, choice: choices[5][r - 1], reason: '선생님 입력', prediction: 'few' });
     // 버튼 연타: 같은 화면에서 보낸 [다음] 두 번
     const [ra, rb] = await Promise.all([c.admin('next', { from: `ROUND${r}_MEETING` }), c.admin('next', { from: `ROUND${r}_MEETING` })]);
     assert.deepEqual([ra.status, rb.status].sort(), [200, 409]);
-    // 결과 계산 버튼을 동시에 5번 (교사 콘솔 + 프레젠터 + 재시도)
-    const many = await Promise.all(Array.from({ length: 5 }, (_, i) => c.admin('next', { from: `ROUND${r}_RESPONSES`, presenter: i % 2 === 1 })));
+    let assign;
+    if (r === 2) {
+      // 미제출 기업이 있으면 자동 기본값(광고 안 함 등) 없이 멈춤 → 교사가 선택을 지정해야 계산
+      const miss = await c.admin('next', { from: 'ROUND2_RESPONSES' });
+      assert.equal(miss.status, 409);
+      assert.match(miss.body.error, /젤리팩토리가 아직 광고 방법을 선택하지 않았습니다\. 강제 진행하려면 교사 대신 선택을 지정해 주세요/);
+      const adm = await c.adminState();
+      assert.equal(adm.rounds[2].computed, false);
+      assert.deepEqual(adm.nextAction.assign, { round: 2, teamIds: [5] });
+      assign = { 5: choices[5][1] };
+    }
+    // 결과 계산 버튼을 동시에 5번 (교사 콘솔 + TV 키보드 + 재시도)
+    const many = await Promise.all(Array.from({ length: 5 }, (_, i) => c.admin('next', { from: `ROUND${r}_RESPONSES`, presenter: i % 2 === 1, assign })));
     assert.equal(many.filter((x) => x.status === 200).length, 1, `라운드 ${r} 결과 계산은 한 번만: ${many.map((x) => x.status)}`);
     const tv = await c.tv();
     assert.equal(tv.step.id, `ROUND${r}_RESULT`);
     assert.equal(tv.results.length, 5);
   }
+  const assigned = (await c.adminState()).submissions[2][5];
+  assert.equal(assigned.choice, 'honest');
+  assert.equal(assigned.byAdmin, true);
+  assert.equal(assigned.byDefault, false);
   const before = await c.adminState();
   await c.admin('goto', { stepId: 'ROUND2_RESULT' });
   await c.admin('goto', { stepId: 'ROUND4_RESULT' });
@@ -98,7 +113,7 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
   await c.admin('prev', { from: 'FINAL_PROFIT' });
   const after = await c.adminState();
   assert.deepEqual(after.teams.map((t) => t.cash), before.teams.map((t) => t.cash));
-  log('  ✓ 4라운드 진행 · 대신 제출 · 연타/동시 요청에도 결과는 정확히 1번 · 재진입해도 재계산 없음');
+  log('  ✓ 4라운드 진행 · 대신 제출 · 미제출이면 계산 안 함(교사 지정 후 진행) · 연타/동시 요청에도 결과는 정확히 1번 · 재진입해도 재계산 없음');
 
   // 학생 재접속: 다른 서버 인스턴스로 요청이 가도 같은 기업·돈 그대로
   const mine = await c.me(tokens[1]);
@@ -116,24 +131,29 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
   const tvBefore = JSON.stringify(await c.tv());
   assert.ok(!tvBefore.includes('"score":{'));
   await c.admin('goto', { stepId: 'NEWS_CONSUMER' });
-  let news = await c.tv();
-  assert.equal(news.news.lines.length, 0);
-  await c.admin('next', { from: 'NEWS_CONSUMER', fromReveal: 0, presenter: true });
-  news = await c.tv();
-  assert.match(news.news.lines[0], /말랑컴퍼니와 쫀득상사가/);
+  const news = await c.tv();
+  assert.match(news.news.lines[0], /말랑컴퍼니와 쫀득상사가/); // 제목·기사 함께 전달 → TV 가 제목 타이핑 후 자동으로 기사 표시
+  assert.equal(news.reveal, undefined);
+  await c.admin('next', { from: 'NEWS_CONSUMER', presenter: true }); // 다음 클릭 = 다음 기사
+  assert.equal((await c.tv()).step.id, 'NEWS_ENVIRONMENT');
   await c.admin('goto', { stepId: 'SOCIAL_PAPER' });
   assert.equal((await c.tv()).headlines.length, 3);
   await c.admin('goto', { stepId: 'SOCIAL_SCORE_REVEAL' });
   let tv = await c.tv();
-  assert.equal(tv.score.items.length, 0);
+  assert.equal(tv.score.categories.length, 0);
+  assert.equal(tv.score.total, 3);
+  const path = [tv.score.start];
   for (let i = 0; i <= tv.score.total; i++) {
     const r = await c.admin('next', { from: 'SOCIAL_SCORE_REVEAL', fromReveal: i, presenter: true });
     assert.equal(r.status, 200);
+    tv = await c.tv();
+    if (!tv.score.done) path.push(tv.score.categories.at(-1).after);
   }
-  tv = await c.tv();
-  assert.equal(tv.score.items.at(-1).after, -10);
+  assert.deepEqual(path, [100, 60, 20, -10]); // 소비자(과장 2) -40 · 환경(일반 2, 절감 1) -40 · 공정(4곳) -30
+  assert.equal(tv.score.final, -10);
   assert.equal(tv.score.done, true);
-  log('  ✓ 뉴스(제목→내용) · 사회면 · 사회점수 항목별 공개 → 최종(음수)');
+  assert.match(tv.score.questions.main, /사회점수는 낮아졌을까요/);
+  log('  ✓ 뉴스(제목→내용 자동, 기사마다 한 클릭) · 사회면 · 사회점수 범주별 공개 → 최종(음수) + 발문');
 
   await c.admin('next', { from: 'SOCIAL_SCORE_REVEAL', fromReveal: tv.score.total + 1 });
   assert.equal((await c.tv()).step.id, 'REFLECTION');

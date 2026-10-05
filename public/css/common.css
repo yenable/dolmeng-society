@@ -91,6 +91,8 @@ button:disabled { cursor: not-allowed; }
 .fade-up { animation: fadeUp .5s ease both; }
 .pop { animation: pop .45s cubic-bezier(.2,.9,.3,1.2) both; }
 
+/* 교실 TV(body.display)는 제외: 연출 자체가 수업 내용이고, 학교 PC는 Windows '애니메이션 효과'가 꺼져 있는 경우가 많음.
+   (전부 0.01ms 로 줄이면 무한 반복하는 뉴스 티커가 깜빡이며 글리치처럼 보임) */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  body:not(.display) *, body:not(.display) *::before, body:not(.display) *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }

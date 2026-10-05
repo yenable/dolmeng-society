@@ -74,6 +74,52 @@ export function newsSting() {
   tone(329.63, t + 0.32, 0.7, { type: 'sine', gain: 0.18 });
 }
 
+// 스네어 한 번 (두구두구용)
+function snare(t, gain) {
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer();
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 1100 + Math.random() * 400;
+  bp.Q.value = 0.7;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+  src.connect(bp).connect(g).connect(master);
+  src.start(t);
+  src.stop(t + 0.09);
+  tone(170 + Math.random() * 20, t, 0.06, { type: 'sine', gain: gain * 0.6 });
+}
+
+// 두구두구 (점점 커지는 드럼롤)
+export function drumroll(sec = 1.1) {
+  if (!ready()) return;
+  const t0 = ctx.currentTime + 0.02;
+  const step = 0.048;
+  const n = Math.max(4, Math.floor(sec / step));
+  for (let i = 0; i < n; i++) snare(t0 + i * step + Math.random() * 0.005, 0.18 + 0.5 * (i / n));
+}
+
+// 순위 카드 등장 (쿵!)
+export function accent() {
+  if (!ready()) return;
+  const t = ctx.currentTime + 0.01;
+  snare(t, 0.9);
+  tone(98, t, 0.35, { type: 'sine', gain: 0.45 });
+  tone(523.25, t, 0.25, { gain: 0.12 });
+}
+
+// 1위 축하 팡파르
+export function fanfare() {
+  if (!ready()) return;
+  const t = ctx.currentTime + 0.01;
+  snare(t, 1);
+  tone(87.31, t, 0.6, { type: 'sine', gain: 0.5 });
+  [523.25, 659.25, 783.99].forEach((f, i) => tone(f, t + i * 0.11, 0.25, { gain: 0.2 }));
+  [1046.5, 1318.5, 1567.98].forEach((f) => tone(f, t + 0.36, 1.3, { gain: 0.14 }));
+  tone(523.25, t + 0.36, 1.3, { type: 'sawtooth', gain: 0.05 });
+}
+
 // 타이핑이 끝났을 때 (타자기 종)
 export function bell() {
   if (!ready()) return;

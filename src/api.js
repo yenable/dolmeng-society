@@ -70,8 +70,18 @@ export function createApi(store, { env = process.env } = {}) {
   };
 
   const ADMIN_ACTIONS = {
-    // 교사 콘솔의 [다음]/[이전] 과 TV 프레젠터 리모컨이 같은 명령을 씀 (presenter: true 면 안전 모드)
-    next: (e, b) => e.next(b.from, b.fromReveal, { safe: !!b.presenter }),
+    // 교사 콘솔의 [다음]/[이전] 과 TV 키보드·리모컨이 같은 명령을 씀 (presenter: true 면 안전 모드)
+    // assign: 교사 콘솔에서 미제출 기업의 선택을 대신 지정하고 바로 진행 ({ 팀번호: 선택 }) — 같은 저장 안에서 한 번에 반영
+    next: (e, b) => {
+      if (b.assign && !b.presenter) {
+        const round = e.step.round;
+        e.checkFrom(b.from, b.fromReveal);
+        for (const [teamId, choice] of Object.entries(b.assign)) {
+          e.submit(teamId, { round, choice, reason: '', prediction: null }, { byAdmin: true });
+        }
+      }
+      return e.next(b.from, b.fromReveal, { safe: !!b.presenter });
+    },
     prev: (e, b) => e.prev(b.from, b.fromReveal, { safe: !!b.presenter }),
     goto: (e, b) => e.goto(b.stepId),
     reset: (e, b) => e.reset({ keepClaims: b.keepClaims !== false }),

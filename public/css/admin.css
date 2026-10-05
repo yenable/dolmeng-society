@@ -107,6 +107,22 @@ dialog label { display: block; font-weight: 700; margin: 12px 0 6px; font-size: 
 dialog select, dialog input, dialog textarea { width: 100%; padding: 9px 10px; border: 1.5px solid var(--line); border-radius: 9px; font-size: 15px; }
 .radio-list { display: flex; flex-direction: column; gap: 6px; }
 .radio-list label { display: flex; gap: 8px; align-items: center; font-weight: 600; margin: 0; padding: 7px 10px; border: 1.5px solid var(--line); border-radius: 9px; }
+.radio-list input[type=radio] { width: auto; margin: 0; flex: none; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+
+/* 사회점수 공개 단계 (TV 와 같은 진행) */
+.phases { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+.phases i { font-style: normal; color: var(--muted); }
+.phases .ph { font-size: 13px; font-weight: 700; padding: 5px 10px; border-radius: 8px; background: var(--bg); color: var(--muted); display: inline-flex; flex-direction: column; line-height: 1.25; }
+.phases .ph.done { color: var(--ink); }
+.phases .ph.cur { background: #15171c; color: #fff; }
+.phases .ph.skip { text-decoration: line-through; opacity: .6; }
+.phases .ph small { font-size: 11px; font-weight: 600; text-decoration: none; }
+
+/* 미제출 기업 선택 지정 */
+fieldset.assign { border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 12px 12px; margin: 12px 0 0; }
+fieldset.assign legend { display: flex; align-items: center; gap: 6px; font-weight: 800; padding: 0 4px; }
+fieldset.assign legend .muted { font-weight: 600; font-size: 12.5px; }
+.radio-list label:has(input:disabled) { opacity: .45; }

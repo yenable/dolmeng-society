@@ -16,7 +16,14 @@ const test = (name, fn) => {
   }
 };
 const conns = {};
-const goto = (g, id) => g.goto(id);
+// 테스트 편의: 목표 단계까지 계산이 필요한 라운드의 미제출 기업은 무작위로 채운 뒤 이동 (실제 게임에는 자동 기본값 없음)
+const goto = (g, id) => {
+  const target = STEPS.find((s) => s.id === id).index;
+  for (let r = 1; r <= 4; r++) {
+    if (target >= STEPS.find((s) => s.id === `ROUND${r}_RESULT`).index && !g.state.rounds[r]?.computed) g.testAutoSubmit('random', r);
+  }
+  g.goto(id);
+};
 const submitAll = (g, r, choices, extra = {}) => TEAM_IDS.forEach((id, i) => g.submit(id, { round: r, choice: choices[i], reason: '테스트 이유', prediction: 'half', ...extra }, { byAdmin: true }));
 
 console.log('엔진 테스트');
@@ -75,12 +82,34 @@ test('버튼 연타: 같은 단계에서 보낸 두 번째 [다음]은 무시', 
   assert.equal(g.state.stepId, 'ROUND1_SCENE');
 });
 
-test('미제출 모둠은 기본값으로 계산되고 게임이 멈추지 않음', () => {
+test('미제출 기업에 기본값(광고 안 함 등)을 자동 적용하지 않음 · 교사가 지정해야 계산', () => {
   const g = new GameEngine();
-  goto(g, 'FINAL_PROFIT');
-  for (let r = 1; r <= 4; r++) assert.ok(g.state.rounds[r].computed);
-  assert.equal(g.state.submissions[1][1].byDefault, true);
-  assert.equal(g.state.teams[1].choices.ad, 'none');
+  g.testAutoJoin();
+  goto(g, 'ROUND2_MEETING');
+  [1, 2, 4, 5].forEach((id) => g.submit(id, { round: 2, choice: 'honest', reason: '정직' }, { byAdmin: true }));
+  g.next('ROUND2_MEETING'); // 회의 → 선택 공개 (계산 없음)
+  assert.equal(g.state.stepId, 'ROUND2_RESPONSES');
+  const cash = g.state.teams[3].cash;
+  assert.throws(() => g.next('ROUND2_RESPONSES'), /몽글기업이 아직 광고 방법을 선택하지 않았습니다\. 강제 진행하려면 교사 대신 선택을 지정해 주세요\./);
+  assert.throws(() => g.goto('FINAL_PROFIT'), /몽글기업이/);
+  assert.equal(g.state.stepId, 'ROUND2_RESPONSES');
+  assert.equal(g.state.rounds[2], undefined);
+  assert.equal(g.state.submissions[2][3], undefined);
+  assert.equal(g.state.teams[3].cash, cash);
+  assert.equal(g.adminView().nextAction.assign.teamIds[0], 3);
+  // 교사가 대신 지정 → 진행
+  g.submit(3, { round: 2, choice: 'celebrity', reason: '' }, { byAdmin: true });
+  g.next('ROUND2_RESPONSES');
+  assert.equal(g.state.teams[3].choices.ad, 'celebrity');
+  assert.ok(!['none', null].includes(g.state.teams[3].choices.ad));
+  // 생산 라운드도 동일
+  goto(g, 'ROUND3_MEETING');
+  [1, 2, 3, 4].forEach((id) => g.submit(id, { round: 3, choice: 'eco', reason: '환경' }, { byAdmin: true }));
+  g.next('ROUND3_MEETING');
+  assert.throws(() => g.next('ROUND3_RESPONSES'), /젤리팩토리가 아직 생산 방법을 선택하지 않았습니다/);
+  assert.equal(g.state.rounds[3], undefined);
+  assert.equal(g.state.teams[5].choices.production, null);
+  assert.ok(!('none' in C.AD_COSTS) && !('none' in C.AD_MULTIPLIERS));
 });
 
 test('광고 효과는 2·3·4라운드 모두 적용, 생산은 판매량에 영향 없음', () => {
@@ -117,16 +146,51 @@ test('담합: 참여 기업은 30,000원, 불참 기업은 원래 가격', () =>
   assert.equal(g.state.rounds[4].collusion.count, 4);
 });
 
-test('사회점수: 과장광고·생산·담합 누적, 음수까지 내려감', () => {
+test('사회점수: 과장광고·생산·담합 누적, 음수까지 내려감 (DB 원본은 기업별, TV는 범주별 합계)', () => {
   const g = new GameEngine();
   g.testAutoJoin();
   g.testAutoComplete('profitFirst');
   // 과장 -20×5, 비용절감 -20×5, 담합 5곳 -30 → 100 - 230 = -130
   assert.equal(g.socialScore(), -130);
   const items = g.scoreItems();
-  assert.equal(items.length, 11);
+  assert.equal(items.length, 11); // 기업별 원본 이벤트 그대로
   assert.equal(items.at(-1).after, -130);
-  assert.equal(items.at(-1).category, 'fairness');
+  const cats = g.scoreCategories();
+  assert.deepEqual(cats.map((c) => [c.category, c.delta, c.after]), [['consumer', -100, 0], ['environment', -100, -100], ['fairness', -30, -130]]);
+});
+
+test('사회점수 예시: 과장 3 · 일반 1 · 절감 2 · 담합 4 → 100 → 40 → -10 → -40', () => {
+  const g = new GameEngine();
+  g.testAutoJoin();
+  goto(g, 'ROUND1_MEETING');
+  submitAll(g, 1, [10000, 10000, 10000, 10000, 10000]);
+  goto(g, 'ROUND2_MEETING');
+  submitAll(g, 2, ['exaggerated', 'celebrity', 'exaggerated', 'honest', 'exaggerated']);
+  goto(g, 'ROUND3_MEETING');
+  submitAll(g, 3, ['cheap', 'normal', 'cheap', 'eco', 'eco']);
+  goto(g, 'ROUND4_MEETING');
+  submitAll(g, 4, ['join', 'join', 'join', 'join', 'no']);
+  goto(g, 'SOCIAL_SCORE_REVEAL');
+  const cats = g.scoreCategories();
+  assert.deepEqual(cats.map((c) => c.before), [100, 40, -10]);
+  assert.deepEqual(cats.map((c) => c.after), [40, -10, -40]);
+  assert.deepEqual(cats[0].groups.map((x) => x.label), ['과장 광고를 선택한 기업 3곳']);
+  assert.deepEqual(cats[0].groups[0].companies.map((x) => x.name), ['말랑컴퍼니', '몽글기업', '젤리팩토리']);
+  assert.deepEqual(cats[1].groups.map((x) => [x.label, x.delta]), [['일반 생산 1곳', -10], ['비용 절감 생산 2곳', -40]]);
+  assert.equal(cats[2].groups[0].label, '공동 가격 제안 참여 4 / 5 기업');
+  assert.equal(cats[2].groups[0].companies.length, 4);
+  // 기업별 원본은 덮어쓰지 않음
+  assert.equal(g.state.socialEvents.filter((e) => e.category === 'consumer').length, 3);
+  // TV 진행: 시작 → 소비자 → 환경 → 공정 → 최종 발문 → 정리
+  const seen = [];
+  for (let i = 0; i < 6; i++) {
+    const v = g.displayView(conns);
+    if (v.step.kind !== 'score') break;
+    seen.push(v.score.done ? `final:${v.score.final}` : v.score.categories.length ? v.score.categories.at(-1).after : v.score.start);
+    g.next('SOCIAL_SCORE_REVEAL', g.state.revealIndex);
+  }
+  assert.deepEqual(seen, [100, 40, -10, -40, 'final:-40']);
+  assert.equal(g.state.stepId, 'REFLECTION');
 });
 
 test('뉴스는 실제 선택 기반 · 조사 자동 · 발생하지 않은 뉴스는 건너뜀', () => {
@@ -146,33 +210,41 @@ test('뉴스는 실제 선택 기반 · 조사 자동 · 발생하지 않은 뉴
   assert.equal(g.state.stepId, 'BLACKOUT');
   g.next('BLACKOUT');
   assert.equal(g.state.stepId, 'NEWS_CONSUMER');
-  assert.equal(g.state.revealIndex, 0); // 제목 장면
-  assert.equal(g.displayView(conns).news.lines.length, 0); // 기사 내용은 아직
+  assert.equal(g.state.revealIndex, 0);
+  assert.ok(g.displayView(conns).news.lines.length > 0); // 제목 → 기사 내용은 TV에서 자동으로 이어짐 (클릭 없음)
   g.next('NEWS_CONSUMER', 0);
-  assert.equal(g.state.stepId, 'NEWS_CONSUMER');
-  assert.ok(g.displayView(conns).news.lines.length > 0); // 다음 클릭에 기사 내용
-  g.next('NEWS_CONSUMER', 1);
-  assert.equal(g.state.stepId, 'SOCIAL_PAPER'); // 환경·공정 뉴스 건너뜀
+  assert.equal(g.state.stepId, 'SOCIAL_PAPER'); // 다음 클릭 = 다음 기사 (환경·공정 뉴스는 발생하지 않아 건너뜀)
   assert.ok(g.displayView(conns).headlines.length >= 1);
   g.prev('SOCIAL_PAPER');
-  assert.deepEqual([g.state.stepId, g.state.revealIndex], ['NEWS_CONSUMER', 1]); // 뒤로 오면 기사까지 보임
+  assert.deepEqual([g.state.stepId, g.state.revealIndex], ['NEWS_CONSUMER', 0]);
   assert.equal(g.socialScore(), 60);
 });
 
-test('사회점수 공개는 항목별로 한 단계씩 (이전 누르면 거꾸로)', () => {
+test('사회점수 공개는 범주별로 한 단계씩 · 감점 0 범주는 건너뜀 (이전 누르면 거꾸로)', () => {
   const g = new GameEngine();
+  g.testAutoComplete('responsible'); // 정직+친환경+불참 → 감점 없음
+  assert.equal(g.scoreCategories().length, 0);
+  g.reset();
   g.testAutoComplete('allExaggerated');
   goto(g, 'SOCIAL_SCORE_REVEAL');
-  const n = g.scoreItems().length;
+  const n = g.scoreCategories().length;
+  assert.ok(n >= 1 && n <= 3);
   assert.equal(g.state.revealIndex, 0);
+  assert.equal(g.displayView(conns).score.categories.length, 0);
+  assert.equal(g.adminView().scorePhases.find((p) => p.current).key, 'start');
   for (let i = 0; i < n; i++) g.next('SOCIAL_SCORE_REVEAL', i);
   assert.equal(g.state.revealIndex, n);
   assert.equal(g.displayView(conns).score.done, false);
+  assert.equal(g.displayView(conns).score.questions, null);
   assert.throws(() => g.next('SOCIAL_SCORE_REVEAL', n - 1), (e) => e.status === 409); // 늦게 온 같은 클릭은 무시
-  g.next('SOCIAL_SCORE_REVEAL', n); // 최종 사회점수 장면
+  g.next('SOCIAL_SCORE_REVEAL', n); // 최종 사회점수 + 발문
   assert.equal(g.state.revealIndex, n + 1);
-  assert.equal(g.displayView(conns).score.done, true);
-  assert.equal(g.displayView(conns).score.items.length, n);
+  const dv = g.displayView(conns).score;
+  assert.equal(dv.done, true);
+  assert.equal(dv.final, g.socialScore());
+  assert.match(dv.questions.main, /왜 돌멩민국의 사회점수는 낮아졌을까요/);
+  assert.equal(g.adminView().scorePhases.find((p) => p.current).key, 'final');
+  assert.equal(g.adminView().scorePhases.find((p) => p.key === 'consumer').reveal, 1);
   g.next('SOCIAL_SCORE_REVEAL', n + 1);
   assert.equal(g.state.stepId, 'REFLECTION');
   g.prev('REFLECTION');
@@ -279,7 +351,9 @@ test('프레젠터: 사회적 영향 이후는 자유롭게 앞뒤', () => {
     g.next(g.state.stepId, g.state.revealIndex, { safe: true });
   }
   assert.equal(g.state.stepId, 'REFLECTION');
-  assert.ok(seen.includes('NEWS_FAIRNESS:1') && seen.includes('SOCIAL_PAPER:0') && seen.includes('BLACKOUT:0'));
+  assert.ok(seen.includes('NEWS_FAIRNESS:0') && seen.includes('SOCIAL_PAPER:0') && seen.includes('BLACKOUT:0'));
+  assert.ok(!seen.includes('NEWS_CONSUMER:1')); // 뉴스 한 기사 = 한 번 클릭
+  assert.deepEqual(seen.filter((x) => x.startsWith('SOCIAL_SCORE')), ['SOCIAL_SCORE_REVEAL:0', 'SOCIAL_SCORE_REVEAL:1', 'SOCIAL_SCORE_REVEAL:2', 'SOCIAL_SCORE_REVEAL:3', 'SOCIAL_SCORE_REVEAL:4']);
   assert.throws(() => g.next('REFLECTION', null, { safe: true }), (e) => e.status === 423);
   g.testAutoReflect(); // 정리 활동을 모두 낸 뒤에는 자유롭게 이동
   for (let i = seen.length - 1; i >= 1; i--) {

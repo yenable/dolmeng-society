@@ -15,9 +15,17 @@ body.display.dark { background: #0d0e10; color: #ececee; }
 .cdot { display: inline-block; width: 1.1rem; height: 1.1rem; border-radius: 50%; background: var(--c); flex: none; }
 
 .starter {
-  position: fixed; right: 1.6rem; bottom: 1.6rem; z-index: 50; border: 0; border-radius: 99rem;
+  position: fixed; left: 50%; bottom: 1.6rem; transform: translateX(-50%); z-index: 50; border: 0; border-radius: 99rem;
   background: rgba(17,24,39,.85); color: #fff; padding: .9rem 1.6rem; font-size: 1.2rem; font-weight: 700;
 }
+/* 전체화면 버튼: 항상 오른쪽 아래. 밝은 화면·검정 화면 모두에서 보이도록 반투명 어두운 바탕 + 밝은 테두리 */
+.fs-btn {
+  position: fixed; right: 1.2rem; bottom: 1rem; z-index: 65;
+  background: rgba(20,22,28,.55); color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 99rem;
+  padding: .45rem 1.1rem; font-size: max(1.05rem, 12px); font-weight: 700; line-height: 1.2;
+  opacity: .55; transition: opacity .2s ease, background .2s ease; box-shadow: 0 .2rem .8rem rgba(0,0,0,.18);
+}
+.fs-btn:hover, .fs-btn:focus-visible { opacity: 1; background: rgba(20,22,28,.85); }
 .hint { position: fixed; left: 50%; bottom: 2rem; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #fff; padding: .8rem 1.4rem; border-radius: .8rem; font-size: 1.2rem; z-index: 40; }
 
 /* ── 시작 ── */
@@ -116,18 +124,27 @@ body.display.special .topbar .pill { background: #f2c14e; color: #15132b; }
 .final-head { text-align: center; flex: none; }
 .final-head .sub { font-size: 2rem; font-weight: 800; color: var(--accent); }
 .final-head h1 { font-size: 4.6rem; font-weight: 900; margin: .2rem 0 2rem; letter-spacing: -0.03em; }
+.final-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .podium { display: grid; grid-template-columns: 1fr 1.35fr 1fr; gap: 2rem; align-items: end; flex: 1; min-height: 0; }
-.pod { color: var(--ink); background: #fff; border-radius: 2rem; padding: 2.2rem 1.6rem; text-align: center; border-top: 1rem solid var(--c); animation: fadeUp .8s ease both; }
+/* 시상식 순차 공개: 처음엔 빈 무대, .in 이 붙으면 등장 */
+.pod { color: var(--ink); background: #fff; border-radius: 2rem; padding: 2.2rem 1.6rem; text-align: center; border-top: 1rem solid var(--c); opacity: 0; }
+.pod.in { animation: podIn .7s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes podIn { from { opacity: 0; transform: translateY(3.5rem); } to { opacity: 1; transform: none; } }
 .pod .md { font-size: 5rem; line-height: 1; }
 .pod .nm { font-size: 2.8rem; font-weight: 900; margin: .8rem 0 .4rem; }
 .pod .pf { font-size: 2.6rem; font-weight: 900; }
-.pod.p1 { padding: 3.2rem 2rem; box-shadow: 0 0 0 .4rem var(--gold), 0 2rem 5rem rgba(242,169,0,.25); animation: pop 1s .6s cubic-bezier(.2,.9,.3,1.3) both; }
+.pod.p1 { padding: 3.2rem 2rem; box-shadow: 0 0 0 .4rem var(--gold), 0 2rem 5rem rgba(242,169,0,.25); }
+.pod.p1.in { animation: champIn 1s cubic-bezier(.2,.9,.3,1.25) both, champGlow 2.4s 1s ease-in-out infinite alternate; }
+@keyframes champIn { 0% { opacity: 0; transform: scale(.9); } 55% { opacity: 1; transform: scale(1.04); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes champGlow { from { box-shadow: 0 0 0 .4rem var(--gold), 0 2rem 5rem rgba(242,169,0,.25); } to { box-shadow: 0 0 0 .55rem var(--gold), 0 2rem 7rem rgba(242,169,0,.55); } }
 .pod.p1 .md { font-size: 7.5rem; }
 .pod.p1 .nm { font-size: 4rem; }
 .pod.p1 .pf { font-size: 3.6rem; color: var(--good); }
 .pod.p1 .cheer { font-size: 1.8rem; font-weight: 800; color: var(--gold); margin-top: .6rem; }
 .rest { display: flex; gap: 2rem; justify-content: center; margin-top: 1.6rem; flex: none; }
-.rest .rr { background: #fff; border-radius: 1.2rem; padding: 1rem 2.4rem; font-size: 2rem; font-weight: 800; display: flex; gap: 1.2rem; align-items: center; border-left: .6rem solid var(--c); }
+.rest .rr { background: #fff; border-radius: 1.2rem; padding: 1rem 2.4rem; font-size: 2rem; font-weight: 800; display: flex; gap: 1.2rem; align-items: center; border-left: .6rem solid var(--c); opacity: 0; }
+.rest.in .rr { animation: fadeUp .6s ease both; }
+.final-wrap.instant .pod, .final-wrap.instant .rr { animation: none !important; opacity: 1; }
 .confetti { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
 .confetti i { position: absolute; top: -3rem; width: 1rem; height: 1.6rem; border-radius: .2rem; animation: fall linear forwards; }
 @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
@@ -143,50 +160,61 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .news .live { background: #c7353b; color: #fff; padding: .3rem 1rem; border-radius: .4rem; letter-spacing: .1em; }
 .news .cat { color: #e3a33b; }
 .news h1 { font-size: 6.4rem; font-weight: 900; letter-spacing: -0.03em; margin: 1.6rem 0 2.4rem; line-height: 1.15; color: #fff; animation: fadeUp .8s .3s ease both; border-left: 1rem solid #c7353b; padding-left: 2.4rem; }
-.news .lines p { font-size: 2.5rem; line-height: 1.65; margin: 0 0 1.4rem; color: #d3d4d8; font-weight: 500; animation: fadeUp .8s ease both; }
-.news .lines p:nth-child(1) { animation-delay: 1s; }
-.news .lines p:nth-child(2) { animation-delay: 1.8s; }
-.news .lines p:nth-child(3) { animation-delay: 2.6s; }
-.news .chips { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.6rem; animation: fadeIn 1s 2.4s ease both; }
+.news .lines p { font-size: 2.5rem; line-height: 1.65; margin: 0 0 1.4rem; color: #d3d4d8; font-weight: 500; }
+.news .chips { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.6rem; }
+/* 기사 내용·관련 기업: 제목 타이핑이 끝나고 잠시 뒤 .show 가 붙으면 자동으로 차례로 등장 */
+#news-detail .lines p, #news-detail .chips { opacity: 0; }
+#news-detail.show .lines p { animation: fadeUp .8s ease both; }
+#news-detail.show .chips { animation: fadeIn .9s ease both; }
+#news-detail.instant .lines p, #news-detail.instant .chips { animation: none; opacity: 1; }
 .news .chip { background: #1d1e22; border: .15rem solid #34363c; border-radius: 99rem; padding: .6rem 1.4rem; font-size: 1.6rem; font-weight: 700; display: flex; align-items: center; gap: .7rem; }
 .news .chip small { color: #8d9097; font-weight: 600; }
-.ticker { flex: none; margin: 0 -3.6rem -2.4rem; background: #c7353b; color: #fff; font-size: 1.6rem; font-weight: 800; padding: .9rem 0; overflow: hidden; white-space: nowrap; }
-.ticker span { display: inline-block; padding-left: 100%; animation: ticker 28s linear infinite; }
-@keyframes ticker { to { transform: translateX(-100%); } }
+/* 하단 속보 티커: 화면 오른쪽 바깥 → 왼쪽 바깥까지 일정한 속도로 한 줄 이동, 끝나면 다시 오른쪽에서.
+   같은 뉴스 화면에서는 DOM 을 다시 만들지 않으므로(display.js) 상태 갱신이 들어와도 처음부터 다시 시작되지 않음 */
+.ticker { flex: none; margin: 0 -3.6rem -2.4rem; background: #c7353b; color: #fff; font-size: 1.6rem; font-weight: 800; padding: .9rem 0; overflow: hidden; white-space: nowrap; contain: paint; }
+.ticker-track { display: inline-block; white-space: nowrap; will-change: transform; backface-visibility: hidden; transform: translate3d(100vw, 0, 0); animation: ticker 50s linear infinite; }
+@keyframes ticker { from { transform: translate3d(100vw, 0, 0); } to { transform: translate3d(-100%, 0, 0); } }
 
 
-.score { flex: 1; display: grid; grid-template-columns: 38rem 1fr; gap: 3rem; min-height: 0; }
+/* ── 사회점수: 왼쪽 큰 점수 + 오른쪽 범주별(소비자 보호·환경·공정 경쟁) 합계 카드 ── */
+.score { position: relative; flex: 1; display: grid; grid-template-columns: 38rem 1fr; gap: 3rem; min-height: 0; }
 .score-left { display: flex; flex-direction: column; justify-content: center; }
-.score-left .lbl { font-size: 2.4rem; font-weight: 800; color: #9a9ca3; }
-.score-num { white-space: nowrap; font-size: 12rem; font-weight: 900; line-height: 1; letter-spacing: -0.05em; margin: 1rem 0; color: #fff; transition: color .4s; }
+.score-left .lbl { font-size: 2.4rem; font-weight: 800; color: #9a9ca3; transform-origin: center; }
+.score-num { white-space: nowrap; font-size: 12rem; font-weight: 900; line-height: 1; letter-spacing: -0.05em; margin: 1rem 0; color: #fff; transition: color 1s ease, text-shadow 1s ease; transform-origin: center; }
 .score-num.neg { color: #ff5f66; }
 .score-num.hit { animation: hit .6s ease; }
 @keyframes hit { 0% { transform: translateX(0); } 20% { transform: translateX(-1.2rem); color: #ff5f66; } 45% { transform: translateX(1rem); } 70% { transform: translateX(-.5rem); } 100% { transform: none; } }
-.score-left .final { font-size: 2.2rem; font-weight: 800; color: #e3a33b; opacity: 0; }
-.score-left .final.show { animation: fadeUp .8s ease forwards; }
-.score-items { display: flex; flex-direction: column; justify-content: center; gap: 1rem; min-height: 0; }
-.sitem { display: grid; grid-template-columns: 10rem 1fr 7.5rem; align-items: center; gap: 1.4rem; background: #17181b; border: .15rem solid #26282d; border-radius: 1.2rem; padding: 1.1rem 1.8rem; }
-.sitem .ct { font-size: 1.4rem; font-weight: 800; padding: .3rem .9rem; border-radius: .5rem; text-align: center; }
-.sitem .ct.consumer { background: #3a2a14; color: #f0b35a; }
-.sitem .ct.environment { background: #16302a; color: #6fd1a8; }
-.sitem .ct.fairness { background: #2b2446; color: #b6a2ff; }
-.sitem .tt { font-size: 2.1rem; font-weight: 800; color: #eee; line-height: 1.25; }
-.sitem .tt small { display: block; font-size: 1.4rem; color: #8d9097; font-weight: 600; margin-top: .2rem; }
-.sitem .dl { font-size: 3rem; font-weight: 900; color: #ff5f66; text-align: right; }
-.sitem.new { animation: slideIn .6s ease both; border-color: #5a2a2d; }
+.score-cats { display: flex; flex-direction: column; justify-content: center; gap: 1.1rem; min-height: 0; transition: opacity .5s ease; }
+.scat { background: #17181b; border: .15rem solid #26282d; border-radius: 1.4rem; padding: 1.2rem 2.2rem 1.3rem; }
+.scat.new { animation: slideIn .6s ease both; border-color: #5a2a2d; }
 @keyframes slideIn { from { opacity: 0; transform: translateX(4rem); } to { opacity: 1; transform: none; } }
-.score-items.compact { gap: .6rem; }
-.score-items.compact .sitem { padding: .55rem 1.6rem; }
-.score-items.compact .tt { font-size: 1.75rem; }
-.score-items.compact .dl { font-size: 2.3rem; }
-.score-items.compact .tt small { font-size: 1.2rem; }
-.score-items.dense { gap: .4rem; }
-.score-items.dense .sitem { padding: .3rem 1.4rem; border-radius: .8rem; }
-.score-items.dense .ct { font-size: 1.15rem; padding: .15rem .6rem; }
-.score-items.dense .tt { font-size: 1.5rem; }
-.score-items.dense .dl { font-size: 1.9rem; }
-.score-items.dense .tt small { display: inline; margin: 0 0 0 .8rem; font-size: 1.1rem; }
-.score-none { font-size: 2.6rem; color: #b9bbc2; font-weight: 700; }
+.scat-head { display: flex; justify-content: space-between; align-items: center; gap: 2rem; }
+.scat .ct { font-size: 2.1rem; font-weight: 900; padding: .2rem 1.2rem; border-radius: .7rem; }
+.scat.consumer .ct { background: #3a2a14; color: #f0b35a; }
+.scat.environment .ct { background: #16302a; color: #6fd1a8; }
+.scat.fairness .ct { background: #2b2446; color: #b6a2ff; }
+.scat .dl { font-size: 3.8rem; font-weight: 900; color: #ff5f66; line-height: 1; }
+.scat .sg { margin-top: .7rem; }
+.scat .sg-top { display: flex; justify-content: space-between; align-items: baseline; gap: 1.6rem; }
+.scat .sg b { font-size: 1.9rem; font-weight: 800; color: #eee; }
+.scat .sgd { font-size: 1.8rem; font-weight: 800; color: #c9666b; }
+.scat .sg small { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .25rem; font-size: 1.4rem; color: #9a9ca3; font-weight: 700; }
+.scat .sg small .cdot { width: .9rem; height: .9rem; }
+.scat .sg small em { font-style: normal; color: #55585f; margin: 0 .3rem; }
+.score-empty { font-size: 3rem; color: #8d9097; font-weight: 800; }
+.score-q { display: none; }
+
+/* 최종 장면: 점수가 화면 정중앙으로 이동(FLIP)·커짐·빨간색 → 0.8초 뒤 발문 */
+.score.is-final { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.score.is-final .score-left { align-items: center; }
+.score.is-final .score-left .lbl { font-size: 3.4rem; color: #c9cbd1; }
+.score.is-final .score-num { font-size: 19rem; margin: .6rem 0 1.4rem; }
+.score-num.red { color: #ff2d3a; text-shadow: 0 0 5rem rgba(255,45,58,.45); }
+.score.is-final .score-cats { position: absolute; right: 0; top: 0; bottom: 0; width: 50%; opacity: 0; pointer-events: none; }
+.score.is-final .score-q { display: block; max-width: 110rem; opacity: 0; transform: translateY(1.6rem); transition: opacity 1.1s ease, transform 1.1s ease; }
+.score.is-final .score-q.show { opacity: 1; transform: none; }
+.score-q .q-main { font-size: 3rem; font-weight: 800; line-height: 1.45; color: #fff; margin: 0; }
+.score-q .q-sub { font-size: 2.4rem; font-weight: 700; line-height: 1.5; color: #b9bbc2; margin: 1.6rem 0 0; }
 
 /* ── 정리 ── */
 .refl-title { font-size: 5.4rem; font-weight: 900; margin: .4rem 0 1rem; }
@@ -232,12 +260,7 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .article h2 { margin: .3rem 0 0; font-size: 2.9rem; font-weight: 900; line-height: 1.25; letter-spacing: -0.02em; min-height: 1.25em; }
 .article.lead h2 { font-size: 3.9rem; }
 
-/* ── 사회점수 최종 장면 ── */
-.score-num.final-pop { animation: finalPop .9s cubic-bezier(.2,.9,.3,1.3); }
-@keyframes finalPop { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
-.score.is-final .score-num { text-shadow: 0 0 3rem rgba(255,95,102,.35); }
-
-/* ── 프레젠터 모드 (/display?presenter=1) — 교사만 알아볼 정도로 작게 ── */
+/* ── 키보드·리모컨 진행 표시 — 교사만 알아볼 정도로 작게 (왼쪽 아래) ── */
 .presenter-badge {
   position: fixed; left: 1.2rem; bottom: 1rem; z-index: 60; display: flex; align-items: center; gap: .6rem;
   font-size: 1rem; font-weight: 800; letter-spacing: .08em; color: rgba(140,140,150,.75); pointer-events: none;
@@ -253,7 +276,7 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .pin-box input { font-size: 22px; padding: 12px; border-radius: 12px; border: 1.5px solid var(--line); text-align: center; letter-spacing: .3em; }
 .pin-box button { border: 0; border-radius: 12px; padding: 14px; font-weight: 800; background: var(--accent); color: #fff; font-size: 17px; }
 .pin-box .pin-err { color: var(--bad); min-height: 1.2em; }
-.pin-box a { color: var(--muted); font-size: 13px; }
+.pin-box .pin-cancel { background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; padding: 4px; }
 .tv-notice {
   position: fixed; left: 50%; bottom: 3rem; transform: translate(-50%, 1.5rem); z-index: 70; opacity: 0; pointer-events: none;
   background: rgba(17,18,22,.92); color: #fff; padding: 1.4rem 2.6rem; border-radius: 1.2rem; text-align: center;
