@@ -1,0 +1,15 @@
+{
+  "name": "dolmeng-slangi",
+  "version": "1.0.0",
+  "private": true,
+  "description": "돌멩민국 슬랑이 시장 — 초등 6학년 사회 실시간 기업 경영 시뮬레이션",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "simulate": "node scripts/simulate.js",
+    "test": "node scripts/engine-test.js && node scripts/smoke-test.js"
+  }
+}

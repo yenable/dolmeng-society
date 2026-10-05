@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>슬랑이 시장 · 교사 콘솔</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='10' y='10' width='80' height='80' rx='18' fill='%2315171c'/></svg>">
+  <link rel="stylesheet" href="/css/common.css">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body class="admin">
+  <!-- 로그인 -->
+  <section id="login" class="login hidden">
+    <form id="login-form">
+      <h1>교사 콘솔</h1>
+      <p class="muted">돌멩민국 슬랑이 시장 · 교사 PIN을 입력하세요</p>
+      <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" autofocus>
+      <button class="btn accent" type="submit">들어가기</button>
+    </form>
+  </section>
+
+  <div id="app" class="hidden">
+    <header class="top">
+      <div class="title"><b>교사 콘솔</b><span class="muted">돌멩민국 슬랑이 시장</span></div>
+      <div class="links">
+        <a href="/display" target="_blank" rel="noopener">TV 화면 열기 ↗</a>
+        <a href="/play" target="_blank" rel="noopener">학생 화면 ↗</a>
+        <span class="secret" title="학생에게 보이지 않는 값">숨은 사회점수 <b id="top-score">100</b></span>
+        <button class="btn ghost small" id="logout">나가기</button>
+      </div>
+    </header>
+
+    <main class="grid">
+      <div class="col-main">
+        <!-- 진행 -->
+        <section class="card nav" id="nav"></section>
+
+        <!-- 모둠 현황 -->
+        <section class="card">
+          <div class="card-head"><h2>모둠 현황</h2><span class="muted" id="teams-sub"></span></div>
+          <div class="table-wrap"><table class="teams" id="teams"></table></div>
+        </section>
+
+        <!-- 라운드 기록 -->
+        <details class="card" id="history-box">
+          <summary><h2>라운드별 기록 · 계산 내역</h2><span class="muted">선택, 이유, 판매량, 내부 계수</span></summary>
+          <div id="history"></div>
+        </details>
+
+        <!-- 사회점수 -->
+        <details class="card" id="social-box">
+          <summary><h2>숨은 사회점수 · 뉴스 미리보기</h2><span class="muted">학생·TV에는 사회적 영향 공개 전까지 보이지 않습니다</span></summary>
+          <div id="social"></div>
+        </details>
+      </div>
+
+      <aside class="col-side">
+        <section class="card">
+          <div class="card-head"><h2>TV 미리보기</h2><a class="muted" href="/display" target="_blank" rel="noopener">새 창 ↗</a></div>
+          <div class="preview"><iframe id="preview" src="/display?preview=1" title="TV 미리보기" tabindex="-1"></iframe></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>전체 진행 단계</h2><span class="muted">누르면 그 단계로 이동</span></div>
+          <ol class="steps" id="steps"></ol>
+        </section>
+
+        <details class="card test" id="test-box">
+          <summary><h2>테스트 패널</h2><span class="muted">수업 전 점검용</span></summary>
+          <div class="test-body">
+            <div class="row"><button class="btn small" data-act="testAutoJoin">빈 기업 자동 접속 처리</button></div>
+            <label class="row">시나리오
+              <select id="scenario"></select>
+            </label>
+            <div class="row wrap">
+              <button class="btn small" data-act="testAutoSubmit">현재 라운드 미제출 모둠 자동 제출</button>
+              <button class="btn small" data-act="testAutoComplete">4라운드 자동 완료 → 최종 순위로</button>
+              <button class="btn small" data-act="testAutoReflect">정리 활동 자동 제출</button>
+            </div>
+            <div class="row wrap">
+              <button class="btn small ghost" data-goto="BLACKOUT">사회적 영향 공개로 이동</button>
+              <button class="btn small ghost" data-goto="SOCIAL_SCORE_REVEAL">사회점수 연출로 이동</button>
+            </div>
+            <p class="muted small-text">한 브라우저에서 학생 5모둠 테스트:
+              <a href="/play?t=1" target="_blank">1</a> · <a href="/play?t=2" target="_blank">2</a> · <a href="/play?t=3" target="_blank">3</a> ·
+              <a href="/play?t=4" target="_blank">4</a> · <a href="/play?t=5" target="_blank">5</a></p>
+          </div>
+        </details>
+
+        <section class="card">
+          <div class="card-head"><h2>설정</h2></div>
+          <label class="check"><input type="checkbox" id="keys"> 키보드·프레젠터 리모컨으로 진행 (→ / PageDown 다음, ← / PageUp 이전)</label>
+          <div class="reset">
+            <label class="check"><input type="checkbox" id="keep-claims" checked> 모둠 접속은 유지</label>
+            <button class="btn danger small" id="reset">전체 초기화</button>
+          </div>
+        </section>
+
+        <details class="card">
+          <summary><h2>진행 기록</h2></summary>
+          <ul class="log" id="log"></ul>
+        </details>
+      </aside>
+    </main>
+  </div>
+
+  <dialog id="dlg">
+    <form method="dialog" id="dlg-form">
+      <h3 id="dlg-title"></h3>
+      <div id="dlg-body"></div>
+      <div class="dlg-actions">
+        <button class="btn ghost" value="cancel" type="submit">취소</button>
+        <button class="btn accent" value="ok" id="dlg-ok" type="submit">제출</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/admin.js"></script>
+</body>
+</html>
