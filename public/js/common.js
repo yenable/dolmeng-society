@@ -30,6 +30,19 @@ export function connectLive({ role, headers = () => ({}) }, { onState, onStatus,
 
   const status = (s) => onStatus?.(s);
 
+  // 수업 중 새 버전이 배포되면 한 번 새로고침 (예전 화면 코드가 새 기능을 못 보여주는 일 방지).
+  // 학생 입력 중이면 기다렸다가 다음 확인 때. 입력 내용·기업 연결은 저장소에 남아 있어 그대로 복원됨
+  let build = null;
+  function newBuild(b) {
+    if (!b) return false;
+    if (!build) build = b;
+    if (b === build) return false;
+    if (document.activeElement?.matches?.('textarea, input')) return false;
+    closed = true;
+    location.reload();
+    return true;
+  }
+
   async function refresh() {
     if (closed) return;
     if (inflight) {
@@ -50,6 +63,7 @@ export function connectLive({ role, headers = () => ({}) }, { onState, onStatus,
       const data = await res.json();
       fails = 0;
       status('online');
+      if (newBuild(data.build)) return;
       onState(data);
     } catch {
       fails += 1;
@@ -291,7 +305,7 @@ export function meetingTimer() {
       el.classList.toggle('low', !over && ms <= 30_000);
       el.classList.toggle('over', over);
       el.classList.toggle('paused', !!t.paused);
-      $('.tm-note', el).textContent = over ? '시간 종료' : t.paused ? '일시정지' : '';
+      $('.tm-note', el).textContent = over ? '· 시간 종료' : t.paused ? '· 일시정지' : '';
     }
   }
   setInterval(paint, 250);

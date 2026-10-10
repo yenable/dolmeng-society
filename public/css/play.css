@@ -181,4 +181,4 @@ body.play.dim .hud { opacity: .25; pointer-events: none; }
 /* 기업 회의 타이머 (학생): 라운드 제목 위 */
 .timer-row { display: flex; margin: 0 0 12px; }
 .timer-row.center { justify-content: center; margin: 4px 0 14px; }
-.play-timer { font-size: 22px; }
+.play-timer { font-size: 26px; }

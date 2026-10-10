@@ -509,7 +509,11 @@ try {
   await page.waitForSelector('#opts .opt', { timeout: 8000 });
   const start = await allNear(118);
   assert.ok(Math.max(...start) - Math.min(...start) <= 1, `세 화면 같은 시간 ${start}`);
-  assert.match(await page.$eval('.play-timer', (e) => e.textContent), /남은 회의 시간\s*0[12]:\d\d/);
+  assert.match(await page.$eval('.play-timer', (e) => e.textContent), /⏱\s*남은 시간\s*0[12]:\d\d/);
+  assert.ok(await page.evaluate(() => document.querySelector('.play-timer').getBoundingClientRect().bottom <= document.querySelector('#opts').getBoundingClientRect().top), '학생: 타이머가 선택지 위');
+  assert.match(await tv.$eval('.tv-timer', (e) => e.textContent), /모둠 회의 중 · 남은 시간\s*0[12]:\d\d/);
+  assert.ok(await tv.$('.topbar .tv-timer'), 'TV: 타이머는 상단 표시줄(우측 상단)');
+  assert.match(await admin.$eval('.admin-timer', (e) => e.textContent), /모둠 회의 시간/);
   const btn = (sel) => admin.$eval(`#nav ${sel}`, (e) => e.click());
   await admin.waitForSelector('#nav [data-timer-add="60"]');
   for (const sec of [60, -30, 30, -60, -60]) {
@@ -538,7 +542,7 @@ try {
   await btn('[data-timer-add="-60"]');
   await allNear(0, 0);
   for (const [pg, sel, who] of screens) {
-    assert.ok(await pg.$eval(sel, (e) => e.classList.contains('over') && e.textContent.includes('00:00') && e.textContent.includes('시간 종료')), `${who}: 00:00 시간 종료`);
+    assert.ok(await pg.$eval(sel, (e) => e.classList.contains('over') && e.textContent.includes('00:00') && e.textContent.includes('· 시간 종료')), `${who}: 00:00 · 시간 종료`);
   }
   await sleep(2500);
   assert.equal(await step(), 'ROUND1_MEETING:-', '0초가 되어도 자동 진행 없음');
@@ -546,7 +550,29 @@ try {
   assert.ok(await page.$('#submit'), '학생은 계속 입력·제출 가능');
   await btn('[data-timer-op="reset"]');
   await allNear(118);
-  ok('회의 타이머: 일시정지/다시 시작 · 0초 → 00:00 시간 종료 표시, 자동 제출·자동 진행 없음 · 2분으로 초기화');
+  ok('회의 타이머: 일시정지/다시 시작 · 0초 → 00:00 · 시간 종료 표시, 자동 제출·자동 진행 없음 · 2분으로 초기화');
+  // 한 기업이 먼저 제출해도 회의 시간은 그대로 (제출한 학생 화면에도 같은 시간)
+  await btn('[data-timer-add="-30"]');
+  await allNear(88, 4);
+  await page.bringToFront();
+  await page.$eval('#opts .opt', (e) => e.click());
+  await page.$eval('#reason', (e) => {
+    e.value = '먼저 결정했기';
+    e.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.$eval('#submit', (e) => e.click());
+  await page.waitForSelector('.done-badge', { timeout: 8000 });
+  await allNear(86, 5);
+  ok('회의 타이머: 한 기업이 먼저 제출해도 전체 회의 시간 유지 (제출 화면에도 같은 시간)');
+  // 다음 라운드 회의에 들어가면 다시 02:00
+  await c.admin('testAutoSubmit', { scenario: 'random' });
+  await c.admin('goto', { stepId: 'ROUND2_SCENE' });
+  await c.admin('next', { from: 'ROUND2_SCENE' });
+  await page.waitForSelector('#opts .opt', { timeout: 8000 });
+  await allNear(118);
+  ok('회의 타이머: 다음 라운드 회의에 들어가면 다시 02:00');
+  await c.admin('reset', { keepClaims: true });
+  await c.admin('goto', { stepId: 'ROUND1_MEETING' });
 
   // ── 11. 교사 콘솔: 미제출 기업 선택 지정 창 → 지정하고 진행 ──────────────
   await c.admin('testAutoSubmit', { scenario: 'random' });
@@ -593,9 +619,16 @@ try {
   await tv.waitForSelector('.lz-s-wait');
   assert.match(await tv.$eval('#stage', (e) => e.textContent), /2\. 시장경제와 국가 간 거래[\s\S]*오늘은 기업을 직접 경영해봅니다[\s\S]*모둠별로 앉아 수업을 준비해주세요/);
   await shot('01-wait');
+  // 수업 시작 → 첫 본문은 돌멩민국 (동기유발 문구 없음)
+  await press(tv, 'ArrowRight', 'LESSON_COUNTRY:-');
+  await tv.waitForSelector('.lz-s-country');
+  assert.match(await tv.$eval('.lz-title', (e) => e.textContent), /여기는 돌멩민국입니다/);
+  assert.doesNotMatch(await tv.$eval('#stage', (e) => e.textContent), /동기유발/);
+  assert.ok(await tv.$('.lz-s-country .slangi'), '슬랑이 캐릭터');
+  await shot('02-country');
   await press(tv, 'ArrowRight', 'LESSON_TEST:-');
   await tv.waitForSelector('.lz-s-testStart');
-  await shot('02-test');
+  await shot('03-test');
   // Q1: 문제 → 정답(③ + 이윤 = 수입 - 비용)
   await press(tv, 'ArrowRight', 'LESSON_Q1:0');
   await tv.waitForSelector('.lz-choices li');
@@ -609,7 +642,7 @@ try {
   assert.match(await tv.$eval('.lz-choices li.correct', (e) => e.textContent), /③물건이나 서비스를 팔아 얻은 수입에서 생산에 들어간 비용을 뺀 금액/);
   assert.ok(await fits(), 'Q1 정답 화면이 넘치지 않음');
   await shot('04-q1-answer');
-  ok('도입: 대기 화면 → 자격 TEST → Q1 문제 → 정답 공개(③ 강조 · 이윤 = 수입 - 비용)');
+  ok('도입: 대기 화면 → 돌멩민국(동기유발 문구 없음) → 자격 TEST → Q1 문제 → 정답 공개(③ 강조 · 이윤 = 수입 - 비용)');
 
   // Q2: 문제만 → H 로 초성 힌트 → ← 로 힌트 숨김 → 힌트 버튼 → 정답 → 새로고침 → ← 로 힌트 화면 복원
   await press(tv, 'ArrowRight', 'LESSON_Q2:0');
@@ -659,10 +692,10 @@ try {
 
   // 나머지 슬라이드 → 기업 선택 → ROUND1 (모두 화면 안에 들어감)
   const rest = [
-    ['LESSON_PASS', 'pass', /통과!/], ['LESSON_COUNTRY', 'country', /여기는 돌멩민국입니다/], ['LESSON_COMPANIES', 'companies', /말랑컴퍼니[\s\S]*젤리팩토리[\s\S]*어떤 일이 생길까요/],
-    ['LESSON_MISSION', 'mission', /우리 기업을 직접 경영하라!/], ['LESSON_TOPIC', 'topic', /기업의 자유와 사회적 책임을 알아봅시다/],
+    ['LESSON_PASS', 'pass', /통과!/], ['LESSON_COMPANIES', 'companies', /말랑컴퍼니[\s\S]*젤리팩토리[\s\S]*어떤 일이 생길까요/],
+    ['LESSON_MISSION', 'mission', /우리 기업을 직접 경영하라!/], ['LESSON_TOPIC', 'topic', /오늘의 배움 목표[\s\S]*기업 경영 시뮬레이션을 통해[\s\S]*기업의 자유와 사회적 책임을 알아봅시다/],
     ['LESSON_ACTIVITIES', 'activities', /활동 1[\s\S]*활동 2/], ['LESSON_ACT1', 'act1Title', /우리 기업, 어떻게 운영할까\?/],
-    ['LESSON_ACT1_ASK', 'act1Ask', /무엇을 중요하게 생각해야 할까요\?/], ['LESSON_HOWTO', 'howto', /상황 확인[\s\S]*시장 결과 확인/],
+    ['LESSON_ACT1_ASK', 'act1Ask', /무엇을 중요하게 생각해야 할까요\?/], ['LESSON_HOWTO', 'howto', /상황 확인[\s\S]*모둠 토의·선택[\s\S]*선택과 이유 공유[\s\S]*시장 결과 확인/],
   ];
   for (const [i, [id, slide, re]] of rest.entries()) {
     await press(tv, 'ArrowRight', `${id}:-`);
@@ -673,6 +706,7 @@ try {
     await shot(`${String(i + 9).padStart(2, '0')}-${slide}`);
   }
   assert.doesNotMatch(await tv.$eval('#stage', (e) => e.textContent), /사회적 영향|환경|공정/, '진행 방법 안내에서 사회적 영향은 아직 말하지 않음');
+  assert.equal(await tv.$$eval('.lz-step', (els) => els.length), 4, '진행 방법 4단계');
   await press(tv, 'ArrowRight', 'INTRO:-');
   await tv.waitForSelector('.intro-title');
   await press(tv, 'ArrowRight', 'ROUND1_SCENE:-');

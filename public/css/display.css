@@ -373,7 +373,7 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 
 /* 진행 방법 */
 .lz-flow { display: flex; align-items: center; justify-content: center; gap: .7rem; margin-bottom: 3.4rem; }
-.lz-step { width: 12rem; height: 12.4rem; background: #fff; border-radius: 1.6rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: .2rem solid #e7e5df; }
+.lz-step { width: 16rem; height: 12.4rem; background: #fff; border-radius: 1.6rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: .2rem solid #e7e5df; }
 .lz.fresh .lz-step { animation: fadeUp .5s ease both; }
 .lz-step .ic { font-size: 3.8rem; line-height: 1; }
 .lz-step b { font-size: 1.9rem; font-weight: 900; line-height: 1.25; text-align: center; padding: 0 .6rem; }
@@ -420,6 +420,7 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 #news-detail.show .term-card { animation: fadeUp .8s ease both; }
 #news-detail.instant .term-card { animation: none; opacity: 1; }
 
-/* 기업 회의 타이머 (TV) */
-.tv-timer { font-size: 3rem; margin: 2.2rem 0 0; }
-.special .tv-timer:not(.low):not(.over):not(.paused) { background: #f2c14e; color: #15132b; }
+/* 기업 회의 타이머 (TV): 우측 상단, 라운드 표시 옆 */
+.topbar .tb-right { display: flex; align-items: center; gap: 1rem; }
+.tv-timer { font-size: 1.9rem; }
+body.display.special .tv-timer:not(.low):not(.over):not(.paused) { background: #f2c14e; color: #15132b; }

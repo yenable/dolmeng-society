@@ -80,6 +80,7 @@ function onState(v) {
     submittedTeams: 0,
     companies: 0,
     timer: 0, // 타이머는 다시 그리지 않고 숫자만 갱신
+    build: 0,
   });
   if (key !== lastKey) {
     lastKey = key;
@@ -137,8 +138,8 @@ const scoreText = (n) => {
   return r < 0 ? `−${Math.abs(r)}` : String(r);
 };
 
-function topbar(v, right = '') {
-  return `<div class="topbar"><div class="brand"><i></i>2. 시장경제와 국가 간 거래</div>${right ? `<div class="pill">${right}</div>` : ''}</div>`;
+function topbar(v, right = '', extra = '') {
+  return `<div class="topbar"><div class="brand"><i></i>2. 시장경제와 국가 간 거래</div>${right || extra ? `<div class="tb-right">${extra}${right ? `<div class="pill">${right}</div>` : ''}</div>` : ''}</div>`;
 }
 
 function render(v, prev) {
@@ -218,7 +219,6 @@ const LESSON_SLIDES = {
   country: (L) => `
     <div class="lz-split">
       <div>
-        <div class="lz-badge">동기유발</div>
         <h1 class="lz-title left">${esc(L.title)}</h1>
         <div class="lz-lines left">${L.lines.map((l) => `<p>${esc(l).replace('‘슬랑이’', '<b>‘슬랑이’</b>')}</p>`).join('')}</div>
         <p class="lz-note">${esc(L.note)}</p>
@@ -335,7 +335,7 @@ const RENDER = {
       </div>`;
   },
 
-  // 도입 슬라이드 (전시학습 상기 → 동기유발 → 배움주제 → 활동 안내). 같은 슬라이드 안의 공개(힌트·정답)는 등장 연출 없이 바뀐 부분만 강조.
+  // 도입 슬라이드 (돌멩민국 → 자격 TEST → 기업 5곳 → 미션 → 배움 목표 → 활동 안내). 같은 슬라이드 안의 공개(힌트·정답)는 등장 연출 없이 바뀐 부분만 강조.
   lesson(v, prev) {
     const fresh = !sameStep(v, prev);
     const slide = LESSON_SLIDES[v.step.slide] ?? LESSON_SLIDES.wait;
@@ -392,11 +392,11 @@ const RENDER = {
 
   meeting(v) {
     const ri = v.roundInfo;
-    stage.innerHTML = `${topbar(v, roundPill(v))}
+    // 회의 타이머는 우측 상단 (발표 내용을 가리지 않게)
+    stage.innerHTML = `${topbar(v, roundPill(v), timerHtml('tv-timer', '모둠 회의 중 · 남은 시간'))}
       <div class="center ${ri.special ? 'special' : ''}">
         <h1 class="meeting-title">기업 회의 중<span class="dots"></span></h1>
         <p class="meeting-q">${esc(ri.question)}</p>
-        ${timerHtml('tv-timer')}
         <div class="meeting-count"><b id="cnt">${v.submittedCount}</b> / ${v.totalTeams} 기업 결정 완료</div>
         <div class="company-row" id="companies"></div>
       </div>`;

@@ -16,18 +16,19 @@ export class GameError extends Error {
 }
 
 // ── 진행 단계 (TV 화면 = PPT 상태 머신) ──────────────────────────────
-// 도입 슬라이드(kind: 'lesson') → 기업 선택(INTRO) → ROUND1 … 순서. 새 세션은 LESSON_WAIT 에서 시작.
+// 도입 슬라이드(kind: 'lesson') → 기업 선택(INTRO) → ROUND1 … 순서. 새 세션은 LESSON_WAIT(수업 대기)에서 시작.
+// 수업을 시작하면 첫 본문은 돌멩민국 상황 제시 → 자격 TEST(Q1~Q3·통과) → 슬랑이 기업 5곳 → …
 export const LESSON_STEPS = [
   { id: 'LESSON_WAIT', slide: 'wait', label: '수업 대기 화면', enterLabel: '수업 대기 화면으로' },
+  { id: 'LESSON_COUNTRY', slide: 'country', label: '돌멩민국 상황 제시', enterLabel: '돌멩민국 상황 제시' },
   { id: 'LESSON_TEST', slide: 'testStart', label: '기업 경영자 자격 TEST 시작', enterLabel: '자격 TEST 시작' },
   { id: 'LESSON_Q1', slide: 'q1', label: '자격 TEST Q1 · 이윤', enterLabel: 'Q1 이윤' },
   { id: 'LESSON_Q2', slide: 'q2', label: '자격 TEST Q2 · 기업의 역할', enterLabel: 'Q2 기업의 역할' },
   { id: 'LESSON_Q3', slide: 'q3', label: '자격 TEST Q3 · 가계의 역할', enterLabel: 'Q3 가계의 역할' },
   { id: 'LESSON_PASS', slide: 'pass', label: '자격 TEST 통과', enterLabel: '자격 TEST 통과' },
-  { id: 'LESSON_COUNTRY', slide: 'country', label: '돌멩민국 상황 제시', enterLabel: '돌멩민국 상황 제시' },
   { id: 'LESSON_COMPANIES', slide: 'companies', label: '슬랑이 기업 5곳 소개', enterLabel: '슬랑이 기업 5곳 소개' },
   { id: 'LESSON_MISSION', slide: 'mission', label: '오늘의 미션', enterLabel: '오늘의 미션' },
-  { id: 'LESSON_TOPIC', slide: 'topic', label: '배움주제', enterLabel: '배움주제' },
+  { id: 'LESSON_TOPIC', slide: 'topic', label: '오늘의 배움 목표', enterLabel: '오늘의 배움 목표' },
   { id: 'LESSON_ACTIVITIES', slide: 'activities', label: '오늘의 활동', enterLabel: '오늘의 활동' },
   { id: 'LESSON_ACT1', slide: 'act1Title', label: '활동 1 타이틀', enterLabel: '활동 1 타이틀' },
   { id: 'LESSON_ACT1_ASK', slide: 'act1Ask', label: '활동 1 도입 발문', enterLabel: '활동 1 도입 발문' },
@@ -418,18 +419,42 @@ export class GameEngine {
     const toCompute = [1, 2, 3, 4].filter((r) => st.index >= STEP_BY_ID[`ROUND${r}_RESULT`].index);
     for (const r of toCompute) this.requireSubmissions(r);
     for (const r of toCompute) this.computeRound(r);
+    this.holdTimer();
     this.state.stepId = st.id;
     this.state.revealIndex = dir < 0 ? this.revealTotal(st) : 0;
     // 퀴즈에 앞에서 들어오면 문제만 보이는 상태로 시작. 뒤에서 돌아오면 정답 화면 + 그때 쓴 힌트 기록 유지(← 로 복원)
     if (st.quiz && dir > 0) this.setHint(st, false);
-    // 기업 회의: 앞에서 들어오면 2분 타이머 새로 시작. 뒤에서 돌아오면 그 회의의 남은 시간 그대로
-    if (st.kind === 'meeting' && (dir > 0 || this.state.timer?.stepId !== st.id)) this.startTimer(st);
+    // 기업 회의: 앞에서 들어오면 2분 타이머 새로 시작. 같은 회의로 뒤로 돌아오면 떠날 때 남은 시간부터 이어서
+    // (이미 결과가 나온 라운드의 회의 화면은 잠겨 있으므로 타이머를 보여주지 않음 — timerPublic)
+    if (st.kind === 'meeting') {
+      const t = this.state.timer;
+      if (dir > 0 || t?.stepId !== st.id) this.startTimer(st);
+      else if (t.held) {
+        t.endsAt = Date.now() + t.pausedLeft;
+        t.pausedLeft = null;
+        t.held = false;
+      }
+    }
     this.log(`진행: ${st.label}`);
   }
 
   // ── 기업 회의 타이머 (서버 상태 = 기준. 화면은 받은 남은 시간을 받은 시각부터 줄여 보여줌) ─────
   startTimer(st, ms = C.MEETING_TIMER_MS) {
-    this.state.timer = { stepId: st.id, endsAt: Date.now() + ms, pausedLeft: null };
+    this.state.timer = { stepId: st.id, endsAt: Date.now() + ms, pausedLeft: null, held: false };
+  }
+
+  // 회의 단계를 떠날 때: 흐르던 타이머를 그 자리에서 멈춰 둠 (held). ← 로 같은 회의에 돌아오면 이어서 흐름
+  holdTimer() {
+    const t = this.state.timer;
+    if (!t || t.stepId !== this.state.stepId || t.pausedLeft != null) return;
+    t.pausedLeft = this.timerLeft();
+    t.held = true;
+  }
+
+  // 회의 단계인데 타이머가 없음 (타이머 도입 전에 이미 회의 단계였던 세션 등) → 교사 콘솔에서 시작 가능
+  timerStartable() {
+    const st = this.step;
+    return st.kind === 'meeting' && !this.state.rounds[st.round]?.computed && !this.timerPublic();
   }
 
   timerLeft(now = Date.now()) {
@@ -450,6 +475,7 @@ export class GameEngine {
   timer(from, op, sec) {
     this.checkFrom(from);
     const st = this.step;
+    if (this.timerStartable()) this.startTimer(st);
     if (!this.timerPublic()) throw new GameError('기업 회의 중에만 타이머를 조절할 수 있습니다.');
     const t = this.state.timer;
     const now = Date.now();
@@ -905,6 +931,7 @@ export class GameEngine {
       scorePhases: this.scorePhases(),
       quiz: st.quiz ? { type: st.quiz, phase: this.quizPhase(), hint: this.hintShown() } : null,
       timer: this.timerPublic(),
+      timerStartable: this.timerStartable(),
       nextAction: this.nextActionInfo(),
       prevLabel: prv?.label ?? null,
       steps: STEPS.map((x) => ({

@@ -147,7 +147,7 @@ function renderNav(v) {
     // 기업 회의 타이머: 세 화면이 같은 시간. 0이 되어도 자동 제출하지 않음 (00:00 으로 멈춤)
     const dis = busy ? 'disabled' : '';
     extra += `<div class="timer-box">
-      ${timerHtml('admin-timer', '남은 회의 시간')}
+      ${timerHtml('admin-timer', '모둠 회의 시간')}
       <div class="timer-btns">
         <button class="btn small ghost" data-timer-add="-60" ${dis}>−1분</button>
         <button class="btn small ghost" data-timer-add="-30" ${dis}>−30초</button>
@@ -158,6 +158,10 @@ function renderNav(v) {
         <button class="btn small ghost" data-timer-op="reset" ${dis}>2분으로</button>
       </div>
     </div>`;
+  } else if (v.timerStartable) {
+    // 타이머 없이 회의 단계에 있는 경우 (타이머 도입 전에 회의를 시작한 세션 등)
+    extra += `<div class="timer-box"><span class="muted">모둠 회의 시간 타이머가 아직 시작되지 않았습니다.</span>
+      <button class="btn small" data-timer-op="reset" ${busy ? 'disabled' : ''}>⏱ 2분 타이머 시작</button></div>`;
   }
   if (computed && ['meeting', 'responses'].includes(st.kind)) extra += '<div class="info">이 라운드는 이미 결과가 계산되었습니다. 다시 계산되지 않습니다.</div>';
   if (st.kind === 'meeting' || st.kind === 'reflection') {

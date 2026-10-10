@@ -259,7 +259,7 @@ function renderRoundForm(v) {
   if (form.choice != null && !ri.options.some((o) => String(o.value) === String(form.choice) && affordable(o))) form.choice = null;
 
   main.innerHTML = `
-    <div class="timer-row">${timerHtml('play-timer', '남은 회의 시간')}</div>
+    <div class="timer-row">${timerHtml('play-timer', '남은 시간')}</div>
     ${roundHead(ri)}
     <div class="options ${ri.special ? 'collusion' : ''}" style="--cols:${ri.options.length}" id="opts">
       ${ri.options.map((o) => {
@@ -364,7 +364,7 @@ function renderSubmitted(v) {
   main.innerHTML = `
     <section class="center-wrap">
       <p class="eyebrow">ROUND ${v.roundInfo.round} · ${esc(v.roundInfo.title)}</p>
-      ${k === 'meeting' ? `<div class="timer-row center">${timerHtml('play-timer', '남은 회의 시간')}</div>` : ''}
+      ${k === 'meeting' ? `<div class="timer-row center">${timerHtml('play-timer', '남은 시간')}</div>` : ''}
       ${sub ? `
         <div class="done-badge pop">✓ ${sub.byDefault ? '기본 선택 적용' : '제출 완료'}</div>
         <p class="sentence">${sentenceHtml(sub)}</p>

@@ -63,10 +63,13 @@ export function createApi(store, { env = process.env } = {}) {
     return id;
   };
 
+  // 모든 화면 데이터에 배포 버전(build)을 붙임. 열려 있던 화면이 새 배포를 만나면 한 번 새로고침해 새 화면 코드를 받음 (common.js)
+  const withBuild = (view) => ({ ...view, build: env.VERCEL_GIT_COMMIT_SHA || '' });
+
   const playView = (engine, token, conns = {}, hasSession = true) => {
     const teamId = engine.teamIdByToken(token);
     // 토큰 무효 판정은 실제 저장된 세션을 읽었을 때만 (네트워크/DB 오류는 여기까지 오지 않음)
-    return engine.teamView(teamId, conns, { tokenRejected: !!token && !teamId && hasSession });
+    return withBuild(engine.teamView(teamId, conns, { tokenRejected: !!token && !teamId && hasSession }));
   };
 
   const ADMIN_ACTIONS = {
@@ -118,7 +121,7 @@ export function createApi(store, { env = process.env } = {}) {
         return playView(engine, token, {}, !!session);
       }
       const { engine, conns } = await read({ presence: true });
-      return role === 'admin' ? engine.adminView(conns) : engine.displayView(conns);
+      return withBuild(role === 'admin' ? engine.adminView(conns) : engine.displayView(conns));
     }
 
     if (method !== 'POST') throw new GameError('Not found', 404);
@@ -150,7 +153,7 @@ export function createApi(store, { env = process.env } = {}) {
       if (!fn) throw new GameError('알 수 없는 명령');
       const { engine } = await mutate((e) => fn(e, body));
       const conns = (await read({ presence: true })).conns;
-      return { ok: true, view: body.presenter ? engine.displayView(conns) : engine.adminView(conns) };
+      return { ok: true, view: withBuild(body.presenter ? engine.displayView(conns) : engine.adminView(conns)) };
     }
     throw new GameError('Not found', 404);
   }

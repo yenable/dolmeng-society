@@ -369,8 +369,8 @@ test('프레젠터: 사회적 영향 이후는 자유롭게 앞뒤', () => {
 // ── 도입 슬라이드 ───────────────────────────────────────────────────
 const lessonAt = (g) => `${g.state.stepId}:${g.state.revealIndex}${g.hintShown() ? ':H' : ''}`;
 const DOOR = [
-  'LESSON_WAIT:0', 'LESSON_TEST:0', 'LESSON_Q1:0', 'LESSON_Q1:1', 'LESSON_Q2:0', 'LESSON_Q2:1', 'LESSON_Q3:0', 'LESSON_Q3:1',
-  'LESSON_PASS:0', 'LESSON_COUNTRY:0', 'LESSON_COMPANIES:0', 'LESSON_MISSION:0', 'LESSON_TOPIC:0', 'LESSON_ACTIVITIES:0',
+  'LESSON_WAIT:0', 'LESSON_COUNTRY:0', 'LESSON_TEST:0', 'LESSON_Q1:0', 'LESSON_Q1:1', 'LESSON_Q2:0', 'LESSON_Q2:1', 'LESSON_Q3:0', 'LESSON_Q3:1',
+  'LESSON_PASS:0', 'LESSON_COMPANIES:0', 'LESSON_MISSION:0', 'LESSON_TOPIC:0', 'LESSON_ACTIVITIES:0',
   'LESSON_ACT1:0', 'LESSON_ACT1_ASK:0', 'LESSON_HOWTO:0', 'INTRO:0', 'ROUND1_SCENE:0',
 ];
 
@@ -621,11 +621,48 @@ test('회의 타이머: 저장(JSON) 후 다시 읽어도 남은 시간 유지 �
   assert.ok(Math.abs(again.displayView(conns).timer.leftMs - 60_000) < 300);
   g.testAutoSubmit('random', 3);
   g.next('ROUND3_MEETING');
+  // 회의를 떠나면 남은 시간이 그 자리에서 멈춤 (선택 공개 화면에 오래 있어도 줄지 않음)
+  assert.equal(g.state.timer.held, true);
+  assert.ok(Math.abs(g.state.timer.pausedLeft - 60_000) < 300);
+  g.state.timer.endsAt = Date.now() - 999_000; // 흐르는 시계였다면 0이 됐을 상황
   g.prev('ROUND3_RESPONSES');
-  assert.ok(Math.abs(g.adminView(conns).timer.leftMs - 60_000) < 300, '뒤로: 이어서');
+  const back = g.adminView(conns).timer;
+  assert.ok(!back.paused && Math.abs(back.leftMs - 60_000) < 300, '뒤로: 떠날 때 남은 시간부터 이어서');
+  // 교사가 일시정지해 둔 채 떠났다가 돌아오면 일시정지 그대로
+  g.timer('ROUND3_MEETING', 'pause');
+  g.next('ROUND3_MEETING');
+  g.prev('ROUND3_RESPONSES');
+  assert.equal(g.adminView(conns).timer.paused, true);
   g.prev('ROUND3_MEETING');
   g.next('ROUND3_SCENE');
-  assert.ok(g.adminView(conns).timer.leftMs > 119_000, '앞으로: 새로 2분');
+  const fresh = g.adminView(conns).timer;
+  assert.ok(!fresh.paused && fresh.leftMs > 119_000, '앞으로: 새로 2분');
+  // 다음 라운드까지 간 뒤 지난 라운드 회의로 돌아가면: 결과가 나온 라운드라 잠김 → 타이머 없음
+  goto(g, 'ROUND4_MEETING');
+  assert.ok(g.adminView(conns).timer.leftMs > 119_000, '4라운드 회의: 새로 2분');
+  g.goto('ROUND3_MEETING');
+  assert.equal(g.adminView(conns).timer, null);
+  assert.equal(g.adminView(conns).timerStartable, false);
+});
+
+test('회의 타이머: 한 기업이 먼저 제출해도 전체 회의 시간은 그대로 · 타이머 없는 예전 세션도 교사가 시작 가능', () => {
+  const g = new GameEngine();
+  g.testAutoJoin();
+  goto(g, 'ROUND1_MEETING');
+  g.timer('ROUND1_MEETING', 'add', -30);
+  g.submit(2, { round: 1, choice: 10000, reason: '먼저 정했기' });
+  assert.ok(Math.abs(g.teamView(2, conns).timer.leftMs - 90_000) < 300, '제출한 기업 화면에도 같은 시간');
+  assert.ok(Math.abs(g.teamView(3, conns).timer.leftMs - 90_000) < 300);
+  assert.ok(Math.abs(g.displayView(conns).timer.leftMs - 90_000) < 300);
+  // 타이머 기능 전에 이미 회의 단계였던 세션 (state.timer 없음)
+  const old = JSON.parse(JSON.stringify(g.state));
+  delete old.timer;
+  const legacy = new GameEngine(old);
+  assert.equal(legacy.adminView(conns).timer, null);
+  assert.equal(legacy.adminView(conns).timerStartable, true);
+  legacy.timer('ROUND1_MEETING', 'reset');
+  assert.ok(legacy.displayView(conns).timer.leftMs > 119_000);
+  assert.equal(legacy.adminView(conns).timerStartable, false);
 });
 
 test('재접속 토큰은 해시로만 저장', () => {
