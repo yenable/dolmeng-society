@@ -156,6 +156,14 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
   log('  ✓ 뉴스(제목→내용 자동, 기사마다 한 클릭) · 사회면 · 사회점수 범주별 공개 → 최종(음수) + 발문');
 
   await c.admin('next', { from: 'SOCIAL_SCORE_REVEAL', fromReveal: tv.score.total + 1 });
+  // 사회적 책임 도입 발문 → 개념 정리 → 자유 + 책임 정리 → 정리 활동
+  for (const id of ['CSR_ASK', 'CSR_CONCEPT', 'CSR_SUMMARY']) {
+    tv = await c.tv();
+    assert.equal(tv.step.id, id);
+    assert.equal(tv.step.kind, 'concept');
+    assert.ok(tv.concept?.title || tv.concept?.left);
+    assert.equal((await c.admin('next', { from: id, presenter: true })).status, 200);
+  }
   assert.equal((await c.tv()).step.id, 'REFLECTION');
   const r1 = await c.post('/api/play/reflect', { token: tokens[1], target: 'ad', choice: 'honest', reason: '소비자에게 피해를 줄 수 있기' });
   assert.equal(r1.status, 200, JSON.stringify(r1.body));

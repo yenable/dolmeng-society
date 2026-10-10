@@ -199,7 +199,40 @@ try {
     await page.keyboard.press(key);
     return until(async () => ((await step()) === expect ? expect : null), 5000, `${key} → ${expect} (현재 ${await step()})`);
   };
+  // 개념 슬라이드(.lz)의 모든 요소가 상단 표시줄 아래 ~ 화면 안에 있는지
+  const slideFits = () => tv.evaluate(() => {
+    const top = document.querySelector('.topbar').getBoundingClientRect().bottom;
+    return [...document.querySelectorAll('.lz *')].every((el) => {
+      const r = el.getBoundingClientRect();
+      return !r.width || (r.top >= top - 1 && r.bottom <= innerHeight + 1 && r.left >= -1 && r.right <= innerWidth + 1);
+    });
+  });
+  const conceptShot = async (name) => {
+    await sleep(900); // 등장 연출이 끝난 뒤
+    assert.ok(await slideFits(), `${name}: 슬라이드가 화면 안에 들어감`);
+    if (process.env.SHOT_DIR) await tv.screenshot({ path: path.join(process.env.SHOT_DIR, `${name}.png`) });
+  };
+  const stageText = () => tv.$eval('#stage', (e) => e.textContent);
   await until(() => tv.$eval('.presenter-badge', (e) => !e.classList.contains('hidden')), 5000, '리모컨 진행 표시');
+
+  // 최종 이윤 순위 → 기업의 자유 정리 → 활동 2 발문 → 하지만…
+  await press(tv, 'ArrowRight', 'ACT1_FREEDOM:-');
+  await tv.waitForSelector('.cz-s-freedom');
+  assert.match(await stageText(), /2\. 시장경제와 국가 간 거래[\s\S]*기업은 어떻게 경제활동을 할까요\?[\s\S]*자유롭게 결정할 수 있습니다[\s\S]*생산 방법[\s\S]*가격[\s\S]*광고 방법[\s\S]*기업은 자신의 판단에 따라 자유롭게 경제활동을 할 수 있습니다\./);
+  assert.equal(await tv.evaluate(() => document.body.classList.contains('light')), true);
+  await conceptShot('30-freedom');
+  await until(async () => /TV 화면을 함께 봐요/.test(await page.$eval('#main', (e) => e.textContent)), 5000, '학생 화면은 기존 TV 안내');
+  await until(async () => /기업의 자유/.test(await navText()), 5000, '교사 콘솔 현재 단계');
+  await press(tv, 'ArrowRight', 'ACT2_ASK:-');
+  await tv.waitForSelector('.cz-s-act2Ask');
+  const a2 = await stageText();
+  assert.match(a2, /활동 2[\s\S]*우리 기업, 정말 잘 운영한 걸까\?[\s\S]*지금 결과만 본다면,[\s\S]*어떤 기업이 가장 잘 운영했다고 생각하나요\?[\s\S]*그렇게 생각한 까닭은 무엇인가요\?/);
+  assert.doesNotMatch(a2, /사회적 책임|소비자|환경/, '활동 2 발문에서는 사회적 책임을 아직 말하지 않음');
+  await conceptShot('31-act2-ask');
+  await tv.reload(); // 새로고침해도 현재 슬라이드 유지
+  await tv.waitForSelector('.cz-s-act2Ask');
+  await until(() => tv.$eval('.presenter-badge', (e) => !e.classList.contains('hidden')), 5000, '리모컨 진행 표시');
+  ok('최종 이윤 순위 → 기업의 자유 정리(생산 방법·가격·광고 방법) → 활동 2 발문 · 학생 화면 그대로 · 교사 콘솔 현재 단계 · 새로고침 유지');
   await press(tv, 'ArrowRight', 'BLACKOUT:-');
   await fsCheck('검정 화면');
   await press(tv, 'PageDown', 'NEWS_CONSUMER:-');
@@ -272,7 +305,7 @@ try {
   await press(tv, 'ArrowLeft', 'NEWS_CONSUMER:-');
   assert.ok(await tv.$('#news-detail.show.instant'), '뒤로 오면 기사까지 바로 보임');
   await press(tv, 'PageUp', 'BLACKOUT:-');
-  await press(tv, 'Backspace', 'FINAL_PROFIT:-');
+  await press(tv, 'Backspace', 'ACT2_ASK:-');
   assert.equal(tv.url(), `${BASE}/display`, 'Backspace 로 페이지 뒤로가기 안 됨');
   await press(tv, ' ', 'BLACKOUT:-');
   ok('일반 /display: → PageDown Enter Space ← PageUp Backspace 각각 한 장면씩 (교사 콘솔 PIN 재사용)');
@@ -292,6 +325,24 @@ try {
   await sleep(1200);
   assert.equal(await step(), 'NEWS_ENVIRONMENT:-');
   ok('빠른 연타·키 반복에도 한 입력당 한 화면만 이동');
+
+  // 공정 경쟁 뉴스: 여기서 처음 ‘담합’ 용어와 뜻 제시 (참여 기업은 실제 데이터)
+  await c.admin('goto', { stepId: 'NEWS_FAIRNESS' });
+  await tv.waitForSelector('#news-detail.show', { timeout: 15000 });
+  await until(() => tv.$eval('.term-card', (e) => getComputedStyle(e).opacity === '1'), 6000, '용어 카드 등장');
+  await sleep(1200);
+  assert.match(await tv.$eval('.news h1', (e) => e.textContent), /슬랑이 기업 5곳, 가격 함께 올렸다/);
+  assert.match(await tv.$eval('#news-detail .lines', (e) => e.textContent), /5곳이 모두 서로 약속하여[\s\S]*서로 짜고 가격이나 거래 조건을 정하는 것을 ‘담합’이라고/);
+  assert.equal(await tv.$eval('#news-detail .lines b.term', (e) => e.textContent), '‘담합’');
+  assert.match(await tv.$eval('.term-card', (e) => e.textContent), /담합\s*기업들이 서로 짜고 가격이나 거래 조건을 정하는 것/);
+  assert.equal(await tv.$$eval('#news-detail .chip', (els) => els.length), 5);
+  const newsFits = await tv.evaluate(() => {
+    const bottom = document.querySelector('.ticker').getBoundingClientRect().top;
+    return [...document.querySelectorAll('.news *')].every((el) => { const r = el.getBoundingClientRect(); return !r.width || (r.bottom <= bottom + 1 && r.right <= innerWidth + 1); });
+  });
+  if (process.env.SHOT_DIR) await tv.screenshot({ path: path.join(process.env.SHOT_DIR, '32-news-fairness.png') });
+  assert.ok(newsFits, '공정 경쟁 뉴스가 티커 위 화면 안에 들어감');
+  ok('공정 경쟁 뉴스: 기사 속 ‘담합’ 강조 + 용어 카드(뜻) · 참여 기업 5곳 · 화면 안에 들어감');
 
   // ── 8. 사회점수: 범주별 공개 → 최종 점수 중앙 이동 + 빨간색 + 발문 ─────────
   await c.admin('goto', { stepId: 'SOCIAL_PAPER' });
@@ -341,6 +392,24 @@ try {
   await press(tv, 'ArrowLeft', 'SOCIAL_SCORE_REVEAL:3');
   await tv.waitForSelector('.score:not(.is-final) .scat');
   await press(tv, 'ArrowRight', 'SOCIAL_SCORE_REVEAL:4');
+  // 최종 발문 → 사회적 책임 도입 발문 → 개념 정리 → 자유 + 책임 → 정리 활동
+  await press(tv, 'ArrowRight', 'CSR_ASK:-');
+  await tv.waitForSelector('.cz-s-csrAsk');
+  const ask = await stageText();
+  assert.match(ask, /기업은 무엇을 함께 생각해야 할까요\?[\s\S]*기업이 자유롭게 경제활동을 하면서도[\s\S]*함께 생각해야 할 것은 무엇일까요\?/);
+  assert.doesNotMatch(ask, /피해|공정하게 경쟁|환경에 미치는/, '예상 답변은 TV 에 보이지 않음');
+  await conceptShot('33-csr-ask');
+  await press(tv, 'ArrowRight', 'CSR_CONCEPT:-');
+  await tv.waitForSelector('.cz-s-csr');
+  assert.match(await stageText(), /기업의 사회적 책임[\s\S]*기업의 경제활동이 사회에 영향을 미치기 때문에[\s\S]*기업이 사회에 대해 가져야 하는 책임[\s\S]*소비자\s*정확한 정보를 제공하기[\s\S]*환경\s*환경을 생각하며 생산하기[\s\S]*공정 경쟁\s*다른 기업과 공정하게 경쟁하기/);
+  await conceptShot('34-csr');
+  await press(tv, 'ArrowRight', 'CSR_SUMMARY:-');
+  await tv.waitForSelector('.cz-s-freedomCsr');
+  assert.match(await stageText(), /기업의 자유\s*\+\s*사회적 책임[\s\S]*기업은 자유롭게 경제활동을 할 수 있습니다\.[\s\S]*소비자, 환경, 다른 기업에 미치는 영향도 함께 생각해야 합니다\.[\s\S]*자유롭게 선택하되, 그 선택의 영향도 생각하기/);
+  await conceptShot('35-freedom-csr');
+  await press(tv, 'ArrowLeft', 'CSR_CONCEPT:-');
+  await press(tv, 'ArrowRight', 'CSR_SUMMARY:-');
+  ok('최종 사회점수 발문 → 사회적 책임 도입 발문(예상 답 없음) → 사회적 책임 개념(소비자·환경·공정 경쟁) → 자유 + 책임 정리 · ← → 이동');
   await press(tv, 'ArrowRight', 'REFLECTION:-');
   await tv.waitForSelector('.refl-title');
   assert.match(await tv.$eval('.round-label', (e) => e.textContent), /우리 기업의 선택 다시 생각하기/);

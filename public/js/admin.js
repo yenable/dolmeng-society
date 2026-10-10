@@ -232,7 +232,7 @@ function renderSteps(v) {
   const idx = v.steps.findIndex((x) => x.current);
   let group = '';
   const html = v.steps.map((s) => {
-    const g = s.kind === 'lesson' ? '도입' : s.kind === 'intro' ? '활동 1 · 기업 경영 시뮬레이션' : s.round ?`${s.round}라운드` : s.kind.startsWith('reflection') || s.kind === 'closing' ? '정리' : s.dark ? '사회적 영향 공개' : '';
+    const g = s.group ? s.group : s.kind === 'lesson' ? '도입' : s.kind === 'intro' ? '활동 1 · 기업 경영 시뮬레이션' : s.round ?`${s.round}라운드` : s.kind.startsWith('reflection') || s.kind === 'closing' ? '정리' : s.dark ? '사회적 영향 공개' : '';
     const head = g && g !== group ? `<li class="group">${g}</li>` : '';
     group = g || group;
     const cls = s.current ? 'cur' : !s.available ? 'off' : s.index < idx ? 'done' : '';

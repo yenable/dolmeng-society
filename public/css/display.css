@@ -376,3 +376,44 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .lz-step .ic { font-size: 3.8rem; line-height: 1; }
 .lz-step b { font-size: 1.9rem; font-weight: 900; line-height: 1.25; text-align: center; padding: 0 .6rem; }
 .lz-flow .arr { font-style: normal; font-size: 2.2rem; font-weight: 900; color: var(--muted); }
+
+/* ── 개념 정리·발문 슬라이드 (기업의 자유 · 활동 2 발문 · 사회적 책임) ───────────── */
+.cz-body { font-size: 2.8rem; }
+.cz-keys { display: flex; align-items: center; justify-content: center; gap: 1.4rem; margin: 3rem 0 0; flex-wrap: wrap; }
+.cz-cap { width: 100%; font-size: 1.7rem; font-weight: 800; color: var(--muted); margin-bottom: .2rem; }
+.cz-key { display: inline-flex; align-items: center; gap: .8rem; background: #fff; border: .2rem solid #e7e5df; border-radius: 99rem; padding: .7rem 2.2rem; font-size: 2.5rem; font-weight: 900; }
+.cz-key i { font-style: normal; font-size: 2.6rem; line-height: 1; }
+.cz-keys em { font-style: normal; font-size: 2.4rem; font-weight: 900; color: var(--muted); }
+.cz-key-line { margin-top: 3.2rem; font-size: 3.1rem; font-weight: 900; letter-spacing: -0.02em; background: var(--ink); color: #fff; padding: 1.1rem 3.4rem; border-radius: 1.6rem; }
+.cz-a2 { background: #2f7bf0; }
+.cz-a2-title { color: var(--ink-2); margin-bottom: 3.4rem; }
+.cz-q { font-size: 5.2rem; }
+.cz-sub { margin: 3rem 0 0; font-size: 2.6rem; font-weight: 700; color: var(--muted); }
+.cz-s-csrAsk .lz-badge { font-size: 2.6rem; color: #2f7bf0; margin-bottom: 2.6rem; }
+.cz-csr-title { font-size: 5rem; margin-bottom: 1.6rem; }
+.cz-def { font-size: 2.8rem; margin-bottom: 3.6rem; }
+.cz-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.4rem; width: 100%; max-width: 96rem; }
+.cz-card { background: #fff; border-radius: 2rem; padding: 2.6rem 2rem; display: flex; flex-direction: column; align-items: center; gap: 1rem; border-top: .8rem solid var(--c, var(--accent)); }
+.cz-card.c1 { --c: #e8860c; }
+.cz-card.c2 { --c: #16a36a; }
+.cz-card.c3 { --c: #2f7bf0; }
+.lz.fresh .cz-card { animation: fadeUp .5s ease both; }
+.cz-card .ic { font-size: 4.4rem; line-height: 1; }
+.cz-card b { font-size: 3.2rem; font-weight: 900; color: var(--c); }
+.cz-card p { margin: 0; font-size: 2.3rem; font-weight: 700; color: var(--ink-2); line-height: 1.4; }
+.cz-eq { display: flex; align-items: center; gap: 2.4rem; font-size: 5.4rem; font-weight: 900; letter-spacing: -0.03em; margin: 0 0 3.2rem; }
+.cz-eq span { background: #fff; border-radius: 1.6rem; padding: .6rem 2.6rem; border: .35rem solid var(--accent); }
+.cz-eq .r { border-color: #2f7bf0; }
+.cz-eq i { font-style: normal; color: var(--muted); }
+
+/* 공정 경쟁 뉴스: 오늘의 경제 용어 카드 (‘담합’) — 기사 오른쪽 */
+#news-detail.with-term { display: grid; grid-template-columns: 1fr 30rem; column-gap: 3.6rem; align-items: start; }
+#news-detail.with-term .chips { grid-column: 1 / -1; }
+.news .lines b.term { color: #fff; font-weight: 900; }
+.term-card { background: #1d1e22; border: .2rem solid #e3a33b; border-radius: 1.6rem; padding: 2rem 2.2rem; }
+.term-card small { display: block; font-size: 1.5rem; font-weight: 800; color: #e3a33b; letter-spacing: .04em; }
+.term-card b { display: block; font-size: 4.4rem; font-weight: 900; color: #fff; margin: .4rem 0 .8rem; }
+.term-card p { margin: 0; font-size: 2.1rem; line-height: 1.5; color: #d3d4d8; font-weight: 600; }
+#news-detail .term-card { opacity: 0; }
+#news-detail.show .term-card { animation: fadeUp .8s ease both; }
+#news-detail.instant .term-card { animation: none; opacity: 1; }

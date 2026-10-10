@@ -274,6 +274,51 @@ const LESSON_SLIDES = {
     </div>`,
 };
 
+// ── 개념 정리·발문 슬라이드 (활동 1 정리 → 활동 2 발문, 사회점수 뒤 사회적 책임 정리) ─────────
+//  도입 슬라이드와 같은 디자인. 발문 슬라이드에는 정답·예시 응답을 보여주지 않음.
+const CONCEPT_SLIDES = {
+  freedom: (L) => `
+    <div class="center">
+      <h1 class="lz-title md">${esc(L.title)}</h1>
+      ${lines(L.lines, 'lz-lines cz-body')}
+      <div class="cz-keys">
+        <span class="cz-cap">${esc(L.caption)}</span>
+        ${L.keywords.map((k) => `<span class="cz-key"><i>${k.icon}</i>${esc(k.label)}</span>`).join('<em>·</em>')}
+      </div>
+      <div class="cz-key-line">${esc(L.key)}</div>
+    </div>`,
+
+  act2Ask: (L) => `
+    <div class="center">
+      <div class="lz-act-no cz-a2">${esc(L.eyebrow)}</div>
+      <h1 class="lz-title md cz-a2-title">${esc(L.title)}</h1>
+      ${lines(L.ask, 'lz-bigq cz-q')}
+      <p class="cz-sub">${esc(L.sub)}</p>
+    </div>`,
+
+  csrAsk: (L) => `
+    <div class="center">
+      <div class="lz-badge">${esc(L.title)}</div>
+      ${lines(L.ask, 'lz-bigq cz-q')}
+    </div>`,
+
+  csr: (L) => `
+    <div class="center">
+      <h1 class="lz-title md cz-csr-title">${esc(L.title)}</h1>
+      ${lines(L.lines, 'lz-lines cz-def')}
+      <div class="cz-cards">
+        ${L.cards.map((c, i) => `<div class="cz-card c${i + 1}" style="animation-delay:${0.35 + i * 0.12}s"><span class="ic">${c.icon}</span><b>${esc(c.label)}</b><p>${esc(c.desc)}</p></div>`).join('')}
+      </div>
+    </div>`,
+
+  freedomCsr: (L) => `
+    <div class="center">
+      <h1 class="cz-eq"><span class="l">${esc(L.left)}</span><i>+</i><span class="r">${esc(L.right)}</span></h1>
+      <div class="lz-lines cz-body"><p>${esc(L.lines[0])}</p><p>${esc(L.lines[1])}</p><p><b>${esc(L.lines[2])}</b></p></div>
+      <div class="cz-key-line">${esc(L.key)}</div>
+    </div>`,
+};
+
 // 프레젠터 명령 (키보드 진행 설정 후 채워짐) — 힌트 버튼이 사용
 const presenter = {};
 
@@ -311,6 +356,13 @@ const RENDER = {
     if (fresh) {
       if (v.step.slide === 'pass' && !cameBack(v, prev)) at(250, fanfare); // 짧은 통과 효과음
     } else if (v.lesson.revealed && !prev.lesson?.revealed) bell(); // 정답 공개
+  },
+
+  // 개념 정리·발문 슬라이드: 인터랙션 없이 → ← 로만 넘김
+  concept(v, prev) {
+    const fresh = !sameStep(v, prev);
+    const slide = CONCEPT_SLIDES[v.step.slide];
+    stage.innerHTML = `${topbar(v)}<div class="lz cz cz-s-${esc(v.step.slide)} ${fresh ? 'fresh' : ''}">${slide ? slide(v.concept, v) : ''}</div>`;
   },
 
   scene(v) {
@@ -470,8 +522,9 @@ const RENDER = {
       <div class="news">
         <div class="tagline"><span class="live">속보</span><span>[${esc(n.tag)}]</span><span class="cat">${esc(n.category)}</span></div>
         <h1 class="typed">${back ? esc(n.headline) : ''}</h1>
-        <div id="news-detail" class="${back ? 'show instant' : ''}">
-          <div class="lines">${n.lines.map((l, i) => `<p style="animation-delay:${i * 0.6}s">${esc(l)}</p>`).join('')}</div>
+        <div id="news-detail" class="${back ? 'show instant' : ''} ${n.concept ? 'with-term' : ''}">
+          <div class="lines">${n.lines.map((l, i) => `<p style="animation-delay:${i * 0.6}s">${termHtml(esc(l), n.concept)}</p>`).join('')}</div>
+          ${n.concept ? `<aside class="term-card" style="animation-delay:${0.2 + n.lines.length * 0.6}s"><small>오늘의 경제 용어</small><b>${esc(n.concept.term)}</b><p>${esc(n.concept.desc)}</p></aside>` : ''}
           <div class="chips" style="animation-delay:${0.3 + n.lines.length * 0.6}s">${n.companies.map((c) => `<span class="chip"><span class="cdot" style="--c:${c.color}"></span>${esc(c.name)} <small>${esc(c.note)}</small></span>`).join('')}</div>
         </div>
       </div>
@@ -557,6 +610,9 @@ const RENDER = {
     stage.innerHTML = `<div class="center closing">${v.closing.map((l) => `<p>${esc(l)}</p>`).join('')}</div>`;
   },
 };
+
+// 공정 경쟁 뉴스: 기사 속 ‘담합’ 용어를 강조 (html 은 이미 escape 된 문자열)
+const termHtml = (html, concept) => (concept ? html.replace(`‘${esc(concept.term)}’`, (m) => `<b class="term">${m}</b>`) : html);
 
 // ── 사회점수 화면 ─────────────────────────────────────────────────────
 function scoreCard(c, isNew) {

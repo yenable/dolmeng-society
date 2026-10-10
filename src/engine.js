@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { GAME_CONFIG as C } from './config.js';
 import {
-  COMPANIES, TEAM_IDS, ROUNDS, REFLECTION, CLOSING_TEXT, CATEGORY_LABELS, SAMPLE_REASONS, SCORE_QUESTIONS, LESSON,
+  COMPANIES, TEAM_IDS, ROUNDS, REFLECTION, CLOSING_TEXT, CATEGORY_LABELS, SAMPLE_REASONS, SCORE_QUESTIONS, LESSON, CONCEPT,
   optionOf, optionLabel, companyName,
 } from './content.js';
 import { buildNews } from './news.js';
@@ -35,6 +35,9 @@ export const LESSON_STEPS = [
 ].map((x) => ({ ...x, kind: 'lesson', label: `도입 · ${x.label}`, quiz: LESSON[x.slide].type ?? null }));
 export const FIRST_STEP_ID = LESSON_STEPS[0].id;
 
+// 개념 정리·발문 슬라이드 (kind: 'concept'): 도입 슬라이드와 같은 PPT 화면. 학생 화면은 'TV 를 보세요' 그대로.
+const concept = (id, slide, group, label, enterLabel = label) => ({ id, slide, group, kind: 'concept', label: `${group} · ${label}`, enterLabel });
+
 export const STEPS = (() => {
   const s = [...LESSON_STEPS, { id: 'INTRO', kind: 'intro', label: '기업 선택 · 접속 확인', enterLabel: '기업 선택 화면으로' }];
   for (let r = 1; r <= 4; r++) {
@@ -46,12 +49,17 @@ export const STEPS = (() => {
   }
   s.push(
     { id: 'FINAL_PROFIT', kind: 'final', label: '최종 이윤 순위', enterLabel: '최종 이윤 순위 발표' },
+    concept('ACT1_FREEDOM', 'freedom', '활동 1 정리', '기업의 자유', '기업의 자유 정리'),
+    concept('ACT2_ASK', 'act2Ask', '활동 2', '도입 발문 (가장 잘 운영한 기업은?)', '활동 2 도입 발문'),
     { id: 'BLACKOUT', kind: 'blackout', dark: true, label: '사회적 영향 · 하지만…', enterLabel: '사회적 영향 공개 시작' },
     { id: 'NEWS_CONSUMER', kind: 'news', news: 'consumer', dark: true, label: '뉴스 · 소비자 보호', enterLabel: '소비자 뉴스' },
     { id: 'NEWS_ENVIRONMENT', kind: 'news', news: 'environment', dark: true, label: '뉴스 · 환경', enterLabel: '환경 뉴스' },
     { id: 'NEWS_FAIRNESS', kind: 'news', news: 'fairness', dark: true, label: '뉴스 · 공정 경쟁', enterLabel: '공정 경쟁 뉴스' },
     { id: 'SOCIAL_PAPER', kind: 'paper', dark: true, label: '사회면 · 오늘의 주요 소식', enterLabel: '사회면 주요 소식' },
     { id: 'SOCIAL_SCORE_REVEAL', kind: 'score', dark: true, label: '돌멩민국 사회점수 공개', enterLabel: '사회점수 공개' },
+    concept('CSR_ASK', 'csrAsk', '사회적 책임', '도입 발문 (함께 생각해야 할 것은?)', '사회적 책임 도입 발문'),
+    concept('CSR_CONCEPT', 'csr', '사회적 책임', '개념 정리', '기업의 사회적 책임 개념 정리'),
+    concept('CSR_SUMMARY', 'freedomCsr', '사회적 책임', '기업의 자유 + 사회적 책임', '기업의 자유 + 사회적 책임 정리'),
     { id: 'REFLECTION', kind: 'reflection', label: '정리 · 우리 기업의 선택 다시 생각하기', enterLabel: '우리 기업의 선택 다시 생각하기 (학생 화면 열기)' },
     { id: 'REFLECTION_RESPONSES', kind: 'reflectionResponses', label: '정리 · 바꾼 선택과 이유 공개', enterLabel: '바꾼 선택과 이유 공개' },
     { id: 'CLOSING', kind: 'closing', dark: true, label: '마무리 문장', enterLabel: '마무리 문장' },
@@ -61,7 +69,7 @@ export const STEPS = (() => {
 const STEP_BY_ID = Object.fromEntries(STEPS.map((s) => [s.id, s]));
 const stepPublic = (st) => ({
   id: st.id, kind: st.kind, round: st.round ?? null, label: st.label, news: st.news ?? null, dark: !!st.dark, index: st.index,
-  slide: st.slide ?? null, quiz: st.quiz ?? null,
+  slide: st.slide ?? null, quiz: st.quiz ?? null, group: st.group ?? null,
 });
 
 const DECISION_ROUND = { price: 1, ad: 2, production: 3, collusion: 4 };
@@ -727,6 +735,7 @@ export class GameEngine {
     if (st.kind === 'reflectionResponses') v.reflections = this.reflectionsPublic();
     if (st.kind === 'closing') v.closing = CLOSING_TEXT;
     if (st.kind === 'lesson') v.lesson = this.lessonPublic(st);
+    if (st.kind === 'concept') v.concept = CONCEPT[st.slide];
     return v;
   }
 

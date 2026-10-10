@@ -191,7 +191,7 @@ test('사회점수 예시: 과장 3 · 일반 1 · 절감 2 · 담합 4 → 100 
     g.next('SOCIAL_SCORE_REVEAL', g.state.revealIndex);
   }
   assert.deepEqual(seen, [100, 40, -10, -40, 'final:-40']);
-  assert.equal(g.state.stepId, 'REFLECTION');
+  assert.equal(g.state.stepId, 'CSR_ASK'); // 최종 발문 → 사회적 책임 도입 발문
 });
 
 test('뉴스는 실제 선택 기반 · 조사 자동 · 발생하지 않은 뉴스는 건너뜀', () => {
@@ -208,6 +208,9 @@ test('뉴스는 실제 선택 기반 · 조사 자동 · 발생하지 않은 뉴
   assert.equal(news.environment, null);
   assert.equal(news.fairness, null); // 1곳 참여 = 무산
   g.next('FINAL_PROFIT');
+  assert.equal(g.state.stepId, 'ACT1_FREEDOM'); // 기업의 자유 정리 → 활동 2 발문 → 하지만…
+  g.next('ACT1_FREEDOM');
+  g.next('ACT2_ASK');
   assert.equal(g.state.stepId, 'BLACKOUT');
   g.next('BLACKOUT');
   assert.equal(g.state.stepId, 'NEWS_CONSUMER');
@@ -247,8 +250,8 @@ test('사회점수 공개는 범주별로 한 단계씩 · 감점 0 범주는 �
   assert.equal(g.adminView().scorePhases.find((p) => p.current).key, 'final');
   assert.equal(g.adminView().scorePhases.find((p) => p.key === 'consumer').reveal, 1);
   g.next('SOCIAL_SCORE_REVEAL', n + 1);
-  assert.equal(g.state.stepId, 'REFLECTION');
-  g.prev('REFLECTION');
+  assert.equal(g.state.stepId, 'CSR_ASK');
+  g.prev('CSR_ASK');
   assert.equal(g.state.revealIndex, n + 1);
 });
 
@@ -467,6 +470,93 @@ test('도입 중에도 학생은 기업 선택·다시 고르기 가능, 제출�
   assert.equal(g.state.teams[2].tokenHash, null);
   assert.throws(() => g.submit(1, { round: 1, choice: 10000, reason: '싸니까요' }), /제출할 수 없습니다/);
   assert.equal(g.displayView().lesson.companies.length, 5);
+});
+
+// ── 활동 1 정리 · 활동 2 (기업의 자유 → 사회적 영향 → 사회적 책임) ─────────────────
+test('활동 1 → 2: 최종 이윤 순위 → 기업의 자유 → 활동 2 발문 → 하지만… → 뉴스 → 사회점수 → 사회적 책임 3장 → 정리 (이전은 거꾸로)', () => {
+  const g = new GameEngine();
+  g.testAutoComplete('profitFirst');
+  const at = () => `${g.state.stepId}:${g.state.revealIndex}`;
+  const seen = [at()];
+  while (g.state.stepId !== 'REFLECTION') {
+    g.next(g.state.stepId, g.state.revealIndex, { safe: true });
+    seen.push(at());
+  }
+  assert.deepEqual(seen, [
+    'FINAL_PROFIT:0', 'ACT1_FREEDOM:0', 'ACT2_ASK:0', 'BLACKOUT:0',
+    'NEWS_CONSUMER:0', 'NEWS_ENVIRONMENT:0', 'NEWS_FAIRNESS:0', 'SOCIAL_PAPER:0',
+    'SOCIAL_SCORE_REVEAL:0', 'SOCIAL_SCORE_REVEAL:1', 'SOCIAL_SCORE_REVEAL:2', 'SOCIAL_SCORE_REVEAL:3', 'SOCIAL_SCORE_REVEAL:4',
+    'CSR_ASK:0', 'CSR_CONCEPT:0', 'CSR_SUMMARY:0', 'REFLECTION:0',
+  ]);
+  for (let i = seen.length - 2; i >= 0; i--) {
+    g.prev(g.state.stepId, g.state.revealIndex);
+    assert.equal(at(), seen[i]);
+  }
+  // 슬라이드 내용
+  const slide = (id) => {
+    g.goto(id);
+    return g.displayView(conns);
+  };
+  const fr = slide('ACT1_FREEDOM');
+  assert.equal(fr.step.kind, 'concept');
+  assert.equal(fr.concept.title, '기업은 어떻게 경제활동을 할까요?');
+  assert.deepEqual(fr.concept.keywords.map((k) => k.label), ['생산 방법', '가격', '광고 방법']);
+  assert.equal(fr.concept.key, '기업은 자신의 판단에 따라 자유롭게 경제활동을 할 수 있습니다.');
+  assert.ok(!fr.score && !fr.news && !fr.headlines, '기업의 자유 화면에 사회적 영향 데이터 없음');
+  const a2 = slide('ACT2_ASK').concept;
+  assert.equal(a2.title, '우리 기업, 정말 잘 운영한 걸까?');
+  assert.equal(a2.ask.join(' '), '지금 결과만 본다면, 어떤 기업이 가장 잘 운영했다고 생각하나요?');
+  assert.equal(a2.sub, '그렇게 생각한 까닭은 무엇인가요?');
+  const ask = JSON.stringify(slide('CSR_ASK').concept);
+  assert.match(ask, /함께 생각해야 할 것은 무엇일까요\?/);
+  assert.doesNotMatch(ask, /소비자에게 피해|공정하게 경쟁해야/, '예상 답변은 TV 에 보내지 않음');
+  const csr = slide('CSR_CONCEPT').concept;
+  assert.equal(csr.title, '기업의 사회적 책임');
+  assert.deepEqual(csr.cards.map((c) => `${c.label}:${c.desc}`), ['소비자:정확한 정보를 제공하기', '환경:환경을 생각하며 생산하기', '공정 경쟁:다른 기업과 공정하게 경쟁하기']);
+  assert.equal(slide('CSR_SUMMARY').concept.key, '자유롭게 선택하되, 그 선택의 영향도 생각하기');
+  // 학생 화면: 새 슬라이드 동안 별도 데이터 없음 (기존처럼 'TV 화면을 함께 봐요')
+  g.testAutoJoin();
+  for (const id of ['ACT1_FREEDOM', 'ACT2_ASK', 'CSR_ASK', 'CSR_CONCEPT', 'CSR_SUMMARY']) {
+    g.goto(id);
+    const tv = g.teamView(1, conns);
+    assert.ok(!tv.concept && !tv.reflection && !tv.standings && !tv.canSubmit, id);
+  }
+  // 새 단계도 이미 계산된 라운드를 다시 계산하지 않음
+  const before = JSON.stringify(g.state.rounds);
+  g.goto('ACT1_FREEDOM');
+  g.goto('CSR_SUMMARY');
+  assert.equal(JSON.stringify(g.state.rounds), before);
+});
+
+test('담합: 활동 1(학생·TV)에는 용어 없음 → 공정 경쟁 뉴스에서 처음 뜻과 함께 제시 (참여 기업 수·이름은 실제 데이터)', () => {
+  const g = new GameEngine();
+  g.testAutoJoin();
+  goto(g, 'ROUND4_MEETING');
+  submitAll(g, 4, ['join', 'no', 'join', 'join', 'no']);
+  const fairIdx = STEPS.find((s) => s.id === 'NEWS_FAIRNESS').index;
+  for (const st of STEPS.filter((s) => s.index < fairIdx)) {
+    g.state.stepId = st.id;
+    for (const id of TEAM_IDS) assert.doesNotMatch(JSON.stringify(g.teamView(id, conns)), /담합/, `학생 화면(${st.id})`);
+    if (g.state.rounds[4]?.computed || st.index < STEPS.find((s) => s.id === 'ROUND4_RESULT').index) {
+      assert.doesNotMatch(JSON.stringify(g.displayView(conns)), /담합/, `TV(${st.id})`);
+    }
+    if (st.id === 'ROUND4_RESPONSES') g.computeRound(4);
+  }
+  g.goto('NEWS_FAIRNESS');
+  const n = g.displayView(conns).news;
+  assert.equal(n.headline, '슬랑이 기업들, 가격 함께 올렸다… 소비자 부담 커져');
+  assert.match(n.lines[0], /5개 슬랑이 기업 가운데 말랑컴퍼니, 몽글기업과 쫀득상사 3곳이 서로 약속하여/);
+  assert.match(n.lines[1], /기업들이 서로 짜고 가격이나 거래 조건을 정하는 것을 ‘담합’이라고/);
+  assert.match(n.lines[2], /더 비싼 가격에 상품을 사게 되고, 공정한 경쟁도 어려워집니다/);
+  assert.deepEqual(n.concept, { term: '담합', desc: '기업들이 서로 짜고 가격이나 거래 조건을 정하는 것' });
+  assert.deepEqual(n.companies.map((c) => c.id), [1, 3, 4]);
+  // 5곳 모두 참여
+  const all = new GameEngine();
+  goto(all, 'ROUND4_MEETING');
+  submitAll(all, 4, ['join', 'join', 'join', 'join', 'join']);
+  goto(all, 'NEWS_FAIRNESS');
+  assert.match(all.news().fairness.lines[0], /5곳이 모두 서로 약속하여/);
+  assert.equal(all.news().fairness.companies.length, 5);
 });
 
 test('재접속 토큰은 해시로만 저장', () => {
