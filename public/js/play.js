@@ -96,7 +96,7 @@ function render() {
   document.body.classList.toggle('dim', !!v.step.dark && !!v.me);
   renderHud(v);
   const key = [
-    v.sessionId, v.me?.id ?? '-', v.step.id, v.canSubmit, !!v.mySubmission, v.roundComputed, !!v.myResult,
+    v.sessionId, v.me?.id ?? '-', v.step.kind === 'lesson' ? 'INTRO' : v.step.id, v.canSubmit, !!v.mySubmission, v.roundComputed, !!v.myResult,
     v.reflection?.canReflect, !!v.reflection?.mine, v.canSubmit ? v.me.cash : '', v.me ? '' : JSON.stringify(v.companies),
   ].join('|');
   if (key === screenKey) {
@@ -106,7 +106,7 @@ function render() {
   screenKey = key;
   if (!v.me) return renderSelect(v);
   const k = v.step.kind;
-  if (k === 'intro') return renderIntro(v);
+  if (k === 'intro' || k === 'lesson') return renderIntro(v); // 도입 슬라이드 동안에도 기업 확인 화면
   if (v.step.round && ['scene', 'meeting', 'responses'].includes(k)) {
     if (k === 'meeting' && v.canSubmit) return renderRoundForm(v);
     if (k === 'scene' || (k === 'meeting' && v.roundComputed && !v.mySubmission)) return renderScene(v);

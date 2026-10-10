@@ -80,12 +80,19 @@ function goNext() {
   // 미제출 기업이 있으면 자동 기본값 없이, 교사가 선택을 지정해야 결과를 계산할 수 있음
   if (v.nextAction.assign) return openAssignDialog(v);
   if (v.nextAction.warning && !confirm(`${v.nextAction.warning}\n\n그래도 진행할까요?`)) return;
-  act('next', { from: v.step.id, fromReveal: v.revealIndex });
+  act('next', { from: v.step.id, fromReveal: v.revealIndex, ...hintGuard(v) });
 }
 function goPrev() {
   const v = view;
   if (!v?.prevLabel) return;
-  act('prev', { from: v.step.id, fromReveal: v.revealIndex });
+  act('prev', { from: v.step.id, fromReveal: v.revealIndex, ...hintGuard(v) });
+}
+// 도입 퀴즈(Q2·Q3): 지금 보고 있는 힌트 상태를 함께 보내 TV 리모컨과 동시에 눌러도 한 단계만 진행
+const hintGuard = (v) => (v.quiz?.type === 'blank' ? { fromHint: v.quiz.hint } : {});
+function toggleHint() {
+  const v = view;
+  if (v?.quiz?.type !== 'blank' || v.quiz.phase === 'answer') return;
+  act('hint', { from: v.step.id, on: !v.quiz.hint });
 }
 
 // ── 렌더 ─────────────────────────────────────────────
@@ -124,6 +131,16 @@ function renderNav(v) {
     // TV 사회점수 공개가 어디까지 왔는지 (TV 키보드 진행과 같은 단계)
     extra += `<div class="phases">${v.scorePhases.map((p) => `<span class="ph ${p.current ? 'cur' : p.done ? 'done' : ''} ${p.skipped ? 'skip' : ''}">${esc(p.label)}${p.skipped ? '<small>감점 없음 · 건너뜀</small>' : ''}</span>`).join('<i>›</i>')}</div>`;
   }
+  if (v.quiz) {
+    // 도입 퀴즈 공개 단계: 문제만 → (초성 힌트) → 정답
+    const phases = [['question', '문제만'], ...(v.quiz.type === 'blank' ? [['hint', '초성 힌트 공개']] : []), ['answer', '정답 공개']];
+    const at = phases.findIndex(([k]) => k === v.quiz.phase);
+    extra += `<div class="phases">${phases.map(([, label], i) => `<span class="ph ${i === at ? 'cur' : i < at ? 'done' : ''}">${label}</span>`).join('<i>›</i>')}</div>`;
+    if (v.quiz.type === 'blank') {
+      extra += `<div class="quiz-tools"><button class="btn small ${v.quiz.hint ? '' : 'ghost'}" id="hint" ${v.quiz.phase === 'answer' || busy ? 'disabled' : ''}>${v.quiz.hint ? '초성 힌트 숨기기' : '💡 초성 힌트 보이기'} (H)</button>
+        <span class="muted">힌트 없이 [정답 공개]를 바로 눌러도 됩니다.</span></div>`;
+    }
+  }
   if (computed && ['meeting', 'responses'].includes(st.kind)) extra += '<div class="info">이 라운드는 이미 결과가 계산되었습니다. 다시 계산되지 않습니다.</div>';
   if (st.kind === 'meeting' || st.kind === 'reflection') {
     const n = st.kind === 'reflection' ? v.reflections.filter((r) => r.submitted).length : Object.values(v.submissions[st.round]).filter(Boolean).length;
@@ -142,6 +159,7 @@ function renderNav(v) {
     <div class="progress">${v.steps.filter((x) => x.available).map((x) => `<i class="${x.current ? 'cur' : x.index < idx ? 'done' : ''}" title="${esc(x.label)}"></i>`).join('')}</div>`;
   $('#next').addEventListener('click', goNext);
   $('#prev').addEventListener('click', goPrev);
+  $('#hint')?.addEventListener('click', toggleHint);
 }
 
 function connCell(t) {
@@ -214,7 +232,7 @@ function renderSteps(v) {
   const idx = v.steps.findIndex((x) => x.current);
   let group = '';
   const html = v.steps.map((s) => {
-    const g = s.round ? `${s.round}라운드` : s.kind.startsWith('reflection') || s.kind === 'closing' ? '정리' : s.dark ? '사회적 영향 공개' : '';
+    const g = s.kind === 'lesson' ? '도입' : s.kind === 'intro' ? '활동 1 · 기업 경영 시뮬레이션' : s.round ?`${s.round}라운드` : s.kind.startsWith('reflection') || s.kind === 'closing' ? '정리' : s.dark ? '사회적 영향 공개' : '';
     const head = g && g !== group ? `<li class="group">${g}</li>` : '';
     group = g || group;
     const cls = s.current ? 'cur' : !s.available ? 'off' : s.index < idx ? 'done' : '';
@@ -381,6 +399,8 @@ document.addEventListener('keydown', (e) => {
   } else if (['ArrowLeft', 'PageUp'].includes(e.key)) {
     e.preventDefault();
     goPrev();
+  } else if (['h', 'H', 'ㅗ'].includes(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    toggleHint();
   }
 });
 

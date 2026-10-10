@@ -148,6 +148,135 @@ function render(v, prev) {
 
 const roundPill = (v) => `ROUND ${v.roundInfo.round} · ${esc(v.roundInfo.title)}`;
 
+// ── 도입 슬라이드 ─────────────────────────────────────────────────────
+// 슬랑이(슬라임 + 말랑이 피젯토이) 캐릭터
+function slangiSvg(color = '#ff5a2e', cls = '') {
+  return `<svg class="slangi ${cls}" viewBox="0 0 200 170" aria-hidden="true" style="--c:${color}">
+    <ellipse cx="100" cy="158" rx="70" ry="9" fill="rgba(0,0,0,.08)"/>
+    <path d="M28 128 C14 92 34 44 74 30 C92 10 128 14 140 34 C176 44 192 92 174 128 C168 150 146 154 132 148 C120 158 82 158 70 148 C52 154 32 148 28 128 Z" fill="var(--c)"/>
+    <path d="M48 70 C56 50 74 40 90 40" stroke="#fff" stroke-opacity=".55" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <circle cx="80" cy="96" r="9" fill="#1b1d22"/><circle cx="122" cy="96" r="9" fill="#1b1d22"/>
+    <circle cx="83" cy="93" r="3" fill="#fff"/><circle cx="125" cy="93" r="3" fill="#fff"/>
+    <path d="M90 112 Q101 122 112 112" stroke="#1b1d22" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <ellipse cx="66" cy="112" rx="9" ry="5" fill="#fff" fill-opacity=".35"/><ellipse cx="136" cy="112" rx="9" ry="5" fill="#fff" fill-opacity=".35"/>
+  </svg>`;
+}
+
+const lines = (arr, cls = 'lz-lines') => `<div class="${cls}">${arr.map((l) => `<p>${esc(l)}</p>`).join('')}</div>`;
+const CIRCLED = ['①', '②', '③', '④', '⑤'];
+const quizHead = (L) => `<div class="lz-qhead"><span class="lz-qno">${esc(L.no)}</span><h1 class="lz-q">${esc(L.question)}</h1></div>`;
+
+// 빈칸: 문제 → (초성 힌트가 빈칸 아래) → 정답이 빈칸을 채움
+function blankHtml(L, i) {
+  if (L.revealed) return `<span class="lz-blank filled"><b class="pop">${esc(L.answers[i])}</b></span>`;
+  const hint = L.hint ? `<em class="lz-hint pop">${esc(L.hints[i])}</em>` : '';
+  return `<span class="lz-blank"><b>&nbsp;</b>${hint}</span>`;
+}
+
+const LESSON_SLIDES = {
+  wait: (L) => `
+    <div class="center"><h1 class="lz-title lz-cover">${esc(L.title)}</h1></div>
+    <p class="lz-foot">${esc(L.foot)}</p>`,
+
+  testStart: (L) => `
+    <div class="center">
+      <div class="lz-badge">전시학습</div>
+      <h1 class="lz-title">${esc(L.title)}</h1>
+      ${lines(L.lines)}
+      <div class="lz-chip">${esc(L.foot)}</div>
+    </div>`,
+
+  q1: (L) => `
+    <div class="lz-quiz">
+      ${quizHead(L)}
+      <ol class="lz-choices ${L.revealed ? 'revealed' : ''}">
+        ${L.choices.map((c, i) => `<li class="${L.revealed && i + 1 === L.answer ? 'correct' : ''}"><span class="n">${CIRCLED[i]}</span><span>${esc(c)}</span>${L.revealed && i + 1 === L.answer ? '<span class="ok pop">정답</span>' : ''}</li>`).join('')}
+      </ol>
+      ${L.revealed ? `<div class="lz-formula pop">${esc(L.formula)}</div>` : ''}
+    </div>`,
+
+  q2: (L) => LESSON_SLIDES.blankQuiz(L),
+  q3: (L) => LESSON_SLIDES.blankQuiz(L),
+  blankQuiz: (L) => `
+    <div class="lz-quiz">
+      ${quizHead(L)}
+      <div class="lz-sentence ${L.hint && !L.revealed ? 'with-hint' : ''}">
+        ${L.lines.map((ln) => `<p>${ln.map((seg) => (typeof seg === 'string' ? esc(seg) : blankHtml(L, seg.blank))).join('')}</p>`).join('')}
+      </div>
+    </div>`,
+
+  pass: (L) => `
+    <div class="center">
+      <h1 class="lz-title">${esc(L.title)}</h1>
+      <div class="lz-stamp">${esc(L.big)}</div>
+      ${lines(L.lines)}
+    </div>`,
+
+  country: (L) => `
+    <div class="lz-split">
+      <div>
+        <div class="lz-badge">동기유발</div>
+        <h1 class="lz-title left">${esc(L.title)}</h1>
+        <div class="lz-lines left">${L.lines.map((l) => `<p>${esc(l).replace('‘슬랑이’', '<b>‘슬랑이’</b>')}</p>`).join('')}</div>
+        <p class="lz-note">${esc(L.note)}</p>
+      </div>
+      <div class="lz-hero">${slangiSvg('#7ED3B2', 'bounce')}</div>
+    </div>`,
+
+  companies: (L) => `
+    <div class="center">
+      <h1 class="lz-title md">${esc(L.title)}</h1>
+      <div class="lz-cos">
+        ${L.companies.map((c, i) => `<div class="lz-co" style="--c:${c.color}; animation-delay:${0.25 + i * 0.12}s">${slangiSvg(c.color)}<b>${esc(c.name)}</b></div>`).join('')}
+      </div>
+      <div class="lz-ask">💬 ${esc(L.ask)}</div>
+    </div>`,
+
+  mission: (L) => `
+    <div class="center">
+      <div class="lz-badge">${esc(L.eyebrow)}</div>
+      <h1 class="lz-title">${esc(L.title)}</h1>
+      <div class="lz-lines"><p>${esc(L.lines[0])}</p><p>${esc(L.lines[1])}</p><p><b>${esc(L.lines[2])}</b></p></div>
+      <p class="lz-foot inline">${esc(L.foot)}</p>
+    </div>`,
+
+  topic: (L) => `
+    <div class="center">
+      <div class="lz-topic">
+        <div class="lz-badge">${esc(L.eyebrow)}</div>
+        ${lines(L.lines, 'lz-topic-text')}
+      </div>
+    </div>`,
+
+  activities: (L) => `
+    <div class="center">
+      <h1 class="lz-title md">${esc(L.title)}</h1>
+      <div class="lz-acts">
+        ${L.items.map((a, i) => `<div class="lz-act a${i + 1}"><div class="no">${esc(a.no)}</div><b>${esc(a.title)}</b><p>${esc(a.desc)}</p></div>`).join('')}
+      </div>
+    </div>`,
+
+  act1Title: (L) => `
+    <div class="center">
+      <div class="lz-act-no">${esc(L.eyebrow)}</div>
+      <h1 class="lz-title xl">${esc(L.title)}</h1>
+    </div>`,
+
+  act1Ask: (L) => `<div class="center">${lines(L.lines, 'lz-bigq')}</div>`,
+
+  howto: (L) => `
+    <div class="center">
+      <h1 class="lz-title md">${esc(L.title)}</h1>
+      <div class="lz-flow">
+        ${L.flow.map((f, i) => `${i ? '<i class="arr">→</i>' : ''}<div class="lz-step" style="animation-delay:${0.2 + i * 0.12}s"><span class="ic">${f.icon}</span><b>${esc(f.label)}</b></div>`).join('')}
+      </div>
+      ${lines(L.foot)}
+    </div>`,
+};
+
+// 프레젠터 명령 (키보드 진행 설정 후 채워짐) — 힌트 버튼이 사용
+const presenter = {};
+
 const RENDER = {
   intro(v) {
     stage.innerHTML = `
@@ -157,6 +286,31 @@ const RENDER = {
         <p class="intro-sub fade-up">5개 기업의 대표가 되어 우리 기업의 이윤을 높여 보세요!</p>
         <div class="company-row" id="companies"></div>
       </div>`;
+  },
+
+  // 도입 슬라이드 (전시학습 상기 → 동기유발 → 배움주제 → 활동 안내). 같은 슬라이드 안의 공개(힌트·정답)는 등장 연출 없이 바뀐 부분만 강조.
+  lesson(v, prev) {
+    const fresh = !sameStep(v, prev);
+    const slide = LESSON_SLIDES[v.step.slide] ?? LESSON_SLIDES.wait;
+    stage.innerHTML = `${topbar(v)}<div class="lz lz-s-${esc(v.step.slide)} ${fresh ? 'fresh' : ''}">${slide(v.lesson, v)}</div>`;
+    if (v.step.quiz === 'blank' && !PREVIEW && !v.lesson.revealed) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `lz-hint-btn ${v.lesson.hint ? 'on' : ''}`;
+      btn.tabIndex = -1; // Enter/Space 는 '다음'으로만
+      btn.textContent = v.lesson.hint ? '힌트 숨기기 (H)' : '💡 힌트 보기 (H)';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        btn.blur();
+        presenter.hint?.();
+      });
+      btn.addEventListener('dblclick', (e) => e.stopPropagation());
+      stage.appendChild(btn);
+    }
+    if (PREVIEW) return;
+    if (fresh) {
+      if (v.step.slide === 'pass' && !cameBack(v, prev)) at(250, fanfare); // 짧은 통과 효과음
+    } else if (v.lesson.revealed && !prev.lesson?.revealed) bell(); // 정답 공개
   },
 
   scene(v) {
@@ -632,16 +786,18 @@ function setupKeyboardControl() {
     });
   } else if (PRESENTER_URL) showGate();
 
-  async function go(dir) {
+  // action: 'next' | 'prev' | 'hint' (도입 퀴즈 Q2·Q3 초성 힌트 보이기/숨기기)
+  async function go(action) {
     if (!view) return;
     setBadge('busy');
     inflight = true;
     try {
-      const r = await api(
-        '/api/admin/action',
-        { action: dir, presenter: true, from: view.step.id, fromReveal: view.reveal?.index ?? null },
-        { 'x-admin-pin': pin },
-      );
+      const body = { action, presenter: true, from: view.step.id, fromReveal: view.reveal?.index ?? null };
+      if (view.step.quiz === 'blank') {
+        if (action === 'hint') body.on = !view.lesson?.hint;
+        else body.fromHint = !!view.lesson?.hint;
+      }
+      const r = await api('/api/admin/action', body, { 'x-admin-pin': pin });
       setBadge('ok');
       if (r.view) onState(r.view);
     } catch (e) {
@@ -658,22 +814,38 @@ function setupKeyboardControl() {
     }
   }
 
+  async function command(action) {
+    if (inflight || Date.now() < lockUntil) return;
+    lockUntil = Date.now() + LOCK_MS;
+    if (!authed && checking) await checking;
+    if (!authed) return showGate();
+    go(action);
+  }
+  presenter.hint = () => {
+    unlockAudio();
+    hideStarter();
+    if (view?.step.quiz === 'blank' && !view.lesson?.revealed) command('hint');
+  };
+
   document.addEventListener('keydown', async (e) => {
     if (gateOpen()) {
       if (e.key === 'Escape') hideGate();
       return; // PIN 입력 중에는 키가 입력창으로
     }
+    const isHint = (e.key === 'h' || e.key === 'H' || e.code === 'KeyH' || e.key === 'ㅗ') && !e.ctrlKey && !e.metaKey && !e.altKey;
     const dir = NEXT_KEYS.has(e.key) ? 'next' : PREV_KEYS.has(e.key) ? 'prev' : null;
     unlockAudio();
     hideStarter();
+    if (isHint && view?.step.quiz === 'blank') {
+      e.preventDefault();
+      if (!e.repeat) presenter.hint();
+      return;
+    }
     if (!dir) return;
     e.preventDefault(); // 스크롤·뒤로가기 등 브라우저 기본 동작 막기
     e.stopPropagation();
-    if (e.repeat || inflight || Date.now() < lockUntil) return;
-    lockUntil = Date.now() + LOCK_MS;
-    if (!authed && checking) await checking;
-    if (!authed) return showGate();
-    go(dir);
+    if (e.repeat) return;
+    command(dir);
   }, true);
 }
 

@@ -76,6 +76,7 @@ test('라운드 결과는 정확히 1번만 계산 (idempotent)', () => {
 
 test('버튼 연타: 같은 단계에서 보낸 두 번째 [다음]은 무시', () => {
   const g = new GameEngine();
+  g.goto('INTRO');
   g.next('INTRO');
   assert.equal(g.state.stepId, 'ROUND1_SCENE');
   assert.throws(() => g.next('INTRO'), (e) => e.status === 409);
@@ -360,6 +361,112 @@ test('프레젠터: 사회적 영향 이후는 자유롭게 앞뒤', () => {
     g.prev(g.state.stepId, g.state.revealIndex, { safe: true });
     assert.equal(at(), seen[i]);
   }
+});
+
+// ── 도입 슬라이드 ───────────────────────────────────────────────────
+const lessonAt = (g) => `${g.state.stepId}:${g.state.revealIndex}${g.hintShown() ? ':H' : ''}`;
+const DOOR = [
+  'LESSON_WAIT:0', 'LESSON_TEST:0', 'LESSON_Q1:0', 'LESSON_Q1:1', 'LESSON_Q2:0', 'LESSON_Q2:1', 'LESSON_Q3:0', 'LESSON_Q3:1',
+  'LESSON_PASS:0', 'LESSON_COUNTRY:0', 'LESSON_COMPANIES:0', 'LESSON_MISSION:0', 'LESSON_TOPIC:0', 'LESSON_ACTIVITIES:0',
+  'LESSON_ACT1:0', 'LESSON_ACT1_ASK:0', 'LESSON_HOWTO:0', 'INTRO:0', 'ROUND1_SCENE:0',
+];
+
+test('도입: 새 세션은 수업 대기 화면 → 다음만으로 ROUND1 까지 (퀴즈는 문제 → 정답), 이전으로 정확히 되돌아감', () => {
+  const g = new GameEngine();
+  const seen = [lessonAt(g)];
+  while (g.state.stepId !== 'ROUND1_SCENE') {
+    g.next(g.state.stepId, g.state.revealIndex, { safe: true });
+    seen.push(lessonAt(g));
+  }
+  assert.deepEqual(seen, DOOR);
+  for (let i = seen.length - 2; i >= 0; i--) {
+    g.prev(g.state.stepId, g.state.revealIndex, { safe: true });
+    assert.equal(lessonAt(g), seen[i]);
+  }
+  // 라운드 계산·돈에는 영향 없음
+  assert.deepEqual(g.state.rounds, {});
+  assert.ok(Object.values(g.state.teams).every((t) => t.cash === C.STARTING_CASH));
+});
+
+test('도입 퀴즈 Q2·Q3: 문제 → 초성 힌트(선택) → 정답 · 이전은 한 단계씩 복원 · 힌트·정답은 공개 전 TV 로 안 보냄', () => {
+  const g = new GameEngine();
+  g.goto('LESSON_Q2');
+  let L = g.displayView().lesson;
+  assert.equal(L.phase, 'question');
+  assert.equal(L.hints, undefined);
+  assert.equal(L.answers, undefined);
+  assert.ok(!JSON.stringify(g.displayView()).includes('ㅅㅅ') && !JSON.stringify(g.displayView()).includes('일자리'));
+  // 힌트 보이기 (on 지정 → 두 번 보내도 결과 같음)
+  g.hint('LESSON_Q2', true);
+  g.hint('LESSON_Q2', true);
+  L = g.displayView().lesson;
+  assert.equal(L.phase, 'hint');
+  assert.deepEqual(L.hints, ['ㅅㅅ', 'ㅍㅁ', 'ㅇㅈㄹ']);
+  assert.equal(L.answers, undefined);
+  assert.equal(g.adminView().quiz.phase, 'hint');
+  g.next('LESSON_Q2', 0, { fromHint: true });
+  L = g.displayView().lesson;
+  assert.equal(L.phase, 'answer');
+  assert.deepEqual(L.answers, ['생산', '판매', '일자리']);
+  assert.equal(L.hints, undefined);
+  g.hint('LESSON_Q2', false); // 정답 공개 뒤에는 힌트 상태를 바꾸지 않음
+  assert.equal(g.adminView().quiz.phase, 'answer');
+  // 이전: 정답 → 힌트 → 문제 → Q1 정답
+  g.prev('LESSON_Q2', 1);
+  assert.equal(lessonAt(g), 'LESSON_Q2:0:H');
+  assert.equal(g.adminView().prevLabel, '초성 힌트 숨기기');
+  g.prev('LESSON_Q2', 0);
+  assert.equal(lessonAt(g), 'LESSON_Q2:0');
+  g.prev('LESSON_Q2', 0);
+  assert.equal(lessonAt(g), 'LESSON_Q1:1');
+  // 힌트 없이 바로 정답
+  g.goto('LESSON_Q3');
+  g.next('LESSON_Q3', 0, { fromHint: false });
+  L = g.displayView().lesson;
+  assert.equal(L.phase, 'answer');
+  assert.deepEqual(L.answers, ['소득', '소비']);
+  g.prev('LESSON_Q3', 1);
+  assert.equal(lessonAt(g), 'LESSON_Q3:0');
+  // 힌트 → 다음 슬라이드 → 돌아오면 정답 화면, 한 번 더 이전이면 힌트 화면 복원
+  g.hint('LESSON_Q3', true);
+  assert.deepEqual(g.displayView().lesson.hints, ['ㅅㄷ', 'ㅅㅂ']);
+  g.next('LESSON_Q3', 0);
+  g.next('LESSON_Q3', 1);
+  assert.equal(g.state.stepId, 'LESSON_PASS');
+  g.prev('LESSON_PASS', 0);
+  assert.equal(lessonAt(g), 'LESSON_Q3:1:H');
+  g.prev('LESSON_Q3', 1);
+  assert.equal(lessonAt(g), 'LESSON_Q3:0:H');
+  // 앞에서 다시 들어오면 문제만
+  g.goto('LESSON_Q2');
+  g.goto('LESSON_Q3');
+  assert.equal(lessonAt(g), 'LESSON_Q3:0');
+  // TV·교사 콘솔이 같은 힌트 상태에서 동시에 [이전] → 한 단계만
+  g.hint('LESSON_Q3', true);
+  g.prev('LESSON_Q3', 0, { fromHint: true });
+  assert.throws(() => g.prev('LESSON_Q3', 0, { fromHint: true }), (e) => e.status === 409);
+  assert.equal(lessonAt(g), 'LESSON_Q3:0');
+  // Q1 은 객관식 — 힌트 없음, 정답 ③ + 이윤 = 수입 - 비용
+  g.goto('LESSON_Q1');
+  assert.throws(() => g.hint('LESSON_Q1'), /Q2·Q3/);
+  assert.equal(g.displayView().lesson.answer, undefined);
+  assert.equal(g.adminView().nextAction.label, '정답 공개');
+  g.next('LESSON_Q1', 0);
+  L = g.displayView().lesson;
+  assert.equal(L.answer, 3);
+  assert.equal(L.choices[L.answer - 1], '물건이나 서비스를 팔아 얻은 수입에서 생산에 들어간 비용을 뺀 금액');
+  assert.equal(L.formula, '이윤 = 수입 - 비용');
+});
+
+test('도입 중에도 학생은 기업 선택·다시 고르기 가능, 제출은 불가', () => {
+  const g = new GameEngine();
+  g.goto('LESSON_COMPANIES');
+  g.claim(2);
+  assert.equal(g.teamView(2).step.kind, 'lesson');
+  g.leave(2);
+  assert.equal(g.state.teams[2].tokenHash, null);
+  assert.throws(() => g.submit(1, { round: 1, choice: 10000, reason: '싸니까요' }), /제출할 수 없습니다/);
+  assert.equal(g.displayView().lesson.companies.length, 5);
 });
 
 test('재접속 토큰은 해시로만 저장', () => {

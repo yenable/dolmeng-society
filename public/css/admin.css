@@ -126,3 +126,4 @@ fieldset.assign { border: 1.5px solid var(--line); border-radius: 12px; padding:
 fieldset.assign legend { display: flex; align-items: center; gap: 6px; font-weight: 800; padding: 0 4px; }
 fieldset.assign legend .muted { font-weight: 600; font-size: 12.5px; }
 .radio-list label:has(input:disabled) { opacity: .45; }
+.quiz-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }

@@ -180,7 +180,7 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
   assert.equal(kept.me.cash, 1_000_000);
   const fresh = await c.adminState();
   assert.equal(fresh.social.score, 100);
-  assert.equal(fresh.step.id, 'INTRO');
+  assert.equal(fresh.step.id, 'LESSON_WAIT'); // 새 세션은 도입(수업 대기 화면)부터
   // 전체 초기화 (접속도 초기화)
   await c.admin('reset', { keepClaims: false });
   assert.equal((await c.me(tokens[2])).tokenRejected, true);

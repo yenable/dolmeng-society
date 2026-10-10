@@ -80,9 +80,11 @@ export function createApi(store, { env = process.env } = {}) {
           e.submit(teamId, { round, choice, reason: '', prediction: null }, { byAdmin: true });
         }
       }
-      return e.next(b.from, b.fromReveal, { safe: !!b.presenter });
+      return e.next(b.from, b.fromReveal, { safe: !!b.presenter, fromHint: b.fromHint });
     },
-    prev: (e, b) => e.prev(b.from, b.fromReveal, { safe: !!b.presenter }),
+    prev: (e, b) => e.prev(b.from, b.fromReveal, { safe: !!b.presenter, fromHint: b.fromHint }),
+    // 도입 퀴즈(Q2·Q3) 초성 힌트 보이기/숨기기 (on 생략 시 토글) — TV 의 H 키·힌트 버튼과 교사 콘솔이 같이 씀
+    hint: (e, b) => e.hint(b.from, b.on),
     goto: (e, b) => e.goto(b.stepId),
     reset: (e, b) => e.reset({ keepClaims: b.keepClaims !== false }),
     release: (e, b) => e.release(b.teamId),

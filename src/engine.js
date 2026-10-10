@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { GAME_CONFIG as C } from './config.js';
 import {
-  COMPANIES, TEAM_IDS, ROUNDS, REFLECTION, CLOSING_TEXT, CATEGORY_LABELS, SAMPLE_REASONS, SCORE_QUESTIONS,
+  COMPANIES, TEAM_IDS, ROUNDS, REFLECTION, CLOSING_TEXT, CATEGORY_LABELS, SAMPLE_REASONS, SCORE_QUESTIONS, LESSON,
   optionOf, optionLabel, companyName,
 } from './content.js';
 import { buildNews } from './news.js';
@@ -16,8 +16,27 @@ export class GameError extends Error {
 }
 
 // ── 진행 단계 (TV 화면 = PPT 상태 머신) ──────────────────────────────
+// 도입 슬라이드(kind: 'lesson') → 기업 선택(INTRO) → ROUND1 … 순서. 새 세션은 LESSON_WAIT 에서 시작.
+export const LESSON_STEPS = [
+  { id: 'LESSON_WAIT', slide: 'wait', label: '수업 대기 화면', enterLabel: '수업 대기 화면으로' },
+  { id: 'LESSON_TEST', slide: 'testStart', label: '기업 경영자 자격 TEST 시작', enterLabel: '자격 TEST 시작' },
+  { id: 'LESSON_Q1', slide: 'q1', label: '자격 TEST Q1 · 이윤', enterLabel: 'Q1 이윤' },
+  { id: 'LESSON_Q2', slide: 'q2', label: '자격 TEST Q2 · 기업의 역할', enterLabel: 'Q2 기업의 역할' },
+  { id: 'LESSON_Q3', slide: 'q3', label: '자격 TEST Q3 · 가계의 역할', enterLabel: 'Q3 가계의 역할' },
+  { id: 'LESSON_PASS', slide: 'pass', label: '자격 TEST 통과', enterLabel: '자격 TEST 통과' },
+  { id: 'LESSON_COUNTRY', slide: 'country', label: '돌멩민국 상황 제시', enterLabel: '돌멩민국 상황 제시' },
+  { id: 'LESSON_COMPANIES', slide: 'companies', label: '슬랑이 기업 5곳 소개', enterLabel: '슬랑이 기업 5곳 소개' },
+  { id: 'LESSON_MISSION', slide: 'mission', label: '오늘의 미션', enterLabel: '오늘의 미션' },
+  { id: 'LESSON_TOPIC', slide: 'topic', label: '배움주제', enterLabel: '배움주제' },
+  { id: 'LESSON_ACTIVITIES', slide: 'activities', label: '오늘의 활동', enterLabel: '오늘의 활동' },
+  { id: 'LESSON_ACT1', slide: 'act1Title', label: '활동 1 타이틀', enterLabel: '활동 1 타이틀' },
+  { id: 'LESSON_ACT1_ASK', slide: 'act1Ask', label: '활동 1 도입 발문', enterLabel: '활동 1 도입 발문' },
+  { id: 'LESSON_HOWTO', slide: 'howto', label: '시뮬레이션 진행 방법', enterLabel: '시뮬레이션 진행 방법' },
+].map((x) => ({ ...x, kind: 'lesson', label: `도입 · ${x.label}`, quiz: LESSON[x.slide].type ?? null }));
+export const FIRST_STEP_ID = LESSON_STEPS[0].id;
+
 export const STEPS = (() => {
-  const s = [{ id: 'INTRO', kind: 'intro', label: '시작 화면', enterLabel: '시작 화면으로' }];
+  const s = [...LESSON_STEPS, { id: 'INTRO', kind: 'intro', label: '기업 선택 · 접속 확인', enterLabel: '기업 선택 화면으로' }];
   for (let r = 1; r <= 4; r++) {
     s.push({ id: `ROUND${r}_SCENE`, kind: 'scene', round: r, label: `${r}라운드 · 상황 제시`, enterLabel: `${r}라운드 상황 보여주기` });
     s.push({ id: `ROUND${r}_MEETING`, kind: 'meeting', round: r, label: `${r}라운드 · 기업 회의 (선택 받는 중)`, enterLabel: '기업 회의 시작 (학생 선택 열기)' });
@@ -40,7 +59,10 @@ export const STEPS = (() => {
   return s.map((x, index) => ({ ...x, index }));
 })();
 const STEP_BY_ID = Object.fromEntries(STEPS.map((s) => [s.id, s]));
-const stepPublic = (st) => ({ id: st.id, kind: st.kind, round: st.round ?? null, label: st.label, news: st.news ?? null, dark: !!st.dark, index: st.index });
+const stepPublic = (st) => ({
+  id: st.id, kind: st.kind, round: st.round ?? null, label: st.label, news: st.news ?? null, dark: !!st.dark, index: st.index,
+  slide: st.slide ?? null, quiz: st.quiz ?? null,
+});
 
 const DECISION_ROUND = { price: 1, ad: 2, production: 3, collusion: 4 };
 const DECISION_OBJECT = { 1: '가격을', 2: '광고 방법을', 3: '생산 방법을', 4: '공동 제안 참여 여부를' };
@@ -102,8 +124,9 @@ export function createState(keepTeams = null) {
     rev: 1,
     seed,
     variance,
-    stepId: 'INTRO',
+    stepId: FIRST_STEP_ID,
     revealIndex: 0,
+    quizHints: {}, // 도입 퀴즈(Q2·Q3)의 초성 힌트 표시 여부 { 단계 id: true }
     teams,
     submissions: { 1: {}, 2: {}, 3: {}, 4: {} },
     rounds: {},
@@ -176,7 +199,7 @@ export class GameEngine {
   }
 
   leave(teamId) {
-    if (this.step.kind !== 'intro') throw new GameError('게임이 시작된 뒤에는 기업을 바꿀 수 없습니다. 선생님께 말씀해 주세요.');
+    if (!['lesson', 'intro'].includes(this.step.kind)) throw new GameError('게임이 시작된 뒤에는 기업을 바꿀 수 없습니다. 선생님께 말씀해 주세요.');
     this.release(teamId);
   }
 
@@ -281,13 +304,47 @@ export class GameEngine {
   // 한 단계 안에서 클릭마다 나뉘어 보이는 장면 수 (0이면 나뉘지 않음)
   //   score: 0 = 시작 점수 → 1..N = 범주별 감점(소비자 보호·환경·공정 경쟁 중 감점 있는 범주만) → N+1 = 최종 사회점수 + 발문
   //   (뉴스는 제목 타이핑 → 기사 내용이 TV에서 자동으로 이어지므로 나누지 않음)
+  //   도입 퀴즈: 0 = 문제(빈칸 퀴즈는 초성 힌트를 따로 켜고 끌 수 있음) → 1 = 정답 공개
   revealTotal(st = this.step) {
     if (st.kind === 'score') return this.scoreCategories().length + 1;
+    if (st.quiz) return 1;
     return 0;
   }
 
-  checkFrom(from, fromReveal) {
+  // ── 도입 퀴즈 초성 힌트 (빈칸 퀴즈만) ─────────────────────────────────
+  hintShown(st = this.step) {
+    return st.quiz === 'blank' && !!this.state.quizHints?.[st.id];
+  }
+
+  setHint(st, on) {
+    this.state.quizHints = { ...(this.state.quizHints ?? {}), [st.id]: !!on };
+  }
+
+  // on 을 주면 그 상태로 (TV·교사 콘솔이 동시에 눌러도 결과가 같음), 없으면 토글. 정답 공개 뒤에는 바꾸지 않음.
+  hint(from, on) {
+    this.checkFrom(from);
+    const st = this.step;
+    if (st.quiz !== 'blank') throw new GameError('초성 힌트가 있는 문제(Q2·Q3)에서만 쓸 수 있습니다.');
+    if (this.state.revealIndex > 0) return;
+    const want = on === undefined || on === null ? !this.hintShown(st) : !!on;
+    if (want === this.hintShown(st)) return;
+    this.setHint(st, want);
+    this.log(`${st.label} · 초성 힌트 ${want ? '공개' : '숨김'}`);
+  }
+
+  // 교사 콘솔 표시용: 문제만 → (힌트 공개) → 정답 공개
+  quizPhase(st = this.step) {
+    if (!st.quiz) return null;
+    if (this.state.revealIndex >= 1) return 'answer';
+    return this.hintShown(st) ? 'hint' : 'question';
+  }
+
+  checkFrom(from, fromReveal, fromHint) {
     if (from && from !== this.state.stepId) throw new GameError('이미 다른 단계로 진행되었습니다. 화면을 확인해 주세요.', 409);
+    // 도입 퀴즈 힌트: TV·교사 콘솔이 동시에 ← 를 눌러도 한 단계만 (힌트 숨김과 이전 슬라이드 이동이 겹치지 않게)
+    if (typeof fromHint === 'boolean' && this.step.quiz === 'blank' && fromHint !== this.hintShown()) {
+      throw new GameError('이미 진행되었습니다.', 409);
+    }
     if (fromReveal !== undefined && fromReveal !== null && this.revealTotal() > 0 && Number(fromReveal) !== this.state.revealIndex) {
       throw new GameError('이미 진행되었습니다.', 409);
     }
@@ -303,8 +360,8 @@ export class GameEngine {
     return null;
   }
 
-  next(from, fromReveal, { safe = false } = {}) {
-    this.checkFrom(from, fromReveal);
+  next(from, fromReveal, { safe = false, fromHint } = {}) {
+    this.checkFrom(from, fromReveal, fromHint);
     const block = safe && this.presenterBlock(+1);
     if (block) throw new GameError(block, 423);
     if (this.state.revealIndex < this.revealTotal()) {
@@ -315,12 +372,17 @@ export class GameEngine {
     if (nxt) this.enter(nxt.id, +1);
   }
 
-  prev(from, fromReveal, { safe = false } = {}) {
-    this.checkFrom(from, fromReveal);
+  prev(from, fromReveal, { safe = false, fromHint } = {}) {
+    this.checkFrom(from, fromReveal, fromHint);
     const block = safe && this.presenterBlock(-1);
     if (block) throw new GameError(block, 423);
     if (this.state.revealIndex > 0) {
       this.state.revealIndex -= 1;
+      return;
+    }
+    if (this.hintShown()) {
+      // 문제 → 힌트 → 정답 의 한 단계 뒤로: 힌트를 숨김
+      this.setHint(this.step, false);
       return;
     }
     const prv = this.neighborStep(-1);
@@ -330,7 +392,8 @@ export class GameEngine {
   goto(stepId) {
     const st = STEP_BY_ID[stepId];
     if (!st) throw new GameError('없는 단계입니다.');
-    const dir = st.index >= this.step.index ? +1 : -1;
+    // 도입 퀴즈는 어느 쪽에서 이동해도 문제 화면부터
+    const dir = st.quiz || st.index >= this.step.index ? +1 : -1;
     this.enter(stepId, dir);
     if (!this.isAvailable(st)) {
       // 발생하지 않은 뉴스로 이동하려 하면 다음 가능한 단계로
@@ -348,6 +411,8 @@ export class GameEngine {
     for (const r of toCompute) this.computeRound(r);
     this.state.stepId = st.id;
     this.state.revealIndex = dir < 0 ? this.revealTotal(st) : 0;
+    // 퀴즈에 앞에서 들어오면 문제만 보이는 상태로 시작. 뒤에서 돌아오면 정답 화면 + 그때 쓴 힌트 기록 유지(← 로 복원)
+    if (st.quiz && dir > 0) this.setHint(st, false);
     this.log(`진행: ${st.label}`);
   }
 
@@ -661,7 +726,24 @@ export class GameEngine {
     }
     if (st.kind === 'reflectionResponses') v.reflections = this.reflectionsPublic();
     if (st.kind === 'closing') v.closing = CLOSING_TEXT;
+    if (st.kind === 'lesson') v.lesson = this.lessonPublic(st);
     return v;
+  }
+
+  // 도입 슬라이드 내용. 퀴즈의 초성 힌트·정답은 그 단계가 공개되었을 때만 보냄.
+  lessonPublic(st) {
+    const c = LESSON[st.slide];
+    if (!st.quiz) return st.slide === 'companies' ? { ...c, companies: COMPANIES } : c;
+    const revealed = this.state.revealIndex >= 1;
+    const { answer, formula, hints, answers, ...rest } = c;
+    const out = { ...rest, phase: this.quizPhase(st), revealed, hint: this.hintShown(st) };
+    if (c.type === 'choice' && revealed) Object.assign(out, { answer, formula });
+    if (c.type === 'blank') {
+      out.blanks = hints.length;
+      if (out.hint && !revealed) out.hints = hints;
+      if (revealed) out.answers = answers;
+    }
+    return out;
   }
 
   teamView(teamId, conns = {}, { tokenRejected = false } = {}) {
@@ -724,6 +806,7 @@ export class GameEngine {
       }
       if (s.revealIndex === cats.length) return { label: '최종 사회점수 · 발문 보여주기', toLabel: '최종 사회점수 · 발문', warning: null };
     }
+    if (st.quiz && s.revealIndex < 1) return { label: '정답 공개', toLabel: `${st.label.replace('도입 · ', '')} · 정답 공개`, warning: null };
     const nxt = this.neighborStep(+1);
     if (!nxt) return null;
     let warning = null;
@@ -747,13 +830,15 @@ export class GameEngine {
   adminView(conns = {}) {
     const s = this.state;
     const st = this.step;
-    const prv = s.revealIndex > 0 ? { label: '사회점수 이전 장면' } : this.neighborStep(-1);
+    const prv = s.revealIndex > 0 ? { label: st.quiz ? '정답 숨기기' : '사회점수 이전 장면' }
+      : this.hintShown() ? { label: '초성 힌트 숨기기' } : this.neighborStep(-1);
     return {
       ...this.base('admin'),
       createdAt: s.createdAt,
       revealIndex: s.revealIndex,
       revealTotal: this.revealTotal(),
       scorePhases: this.scorePhases(),
+      quiz: st.quiz ? { type: st.quiz, phase: this.quizPhase(), hint: this.hintShown() } : null,
       nextAction: this.nextActionInfo(),
       prevLabel: prv?.label ?? null,
       steps: STEPS.map((x) => ({

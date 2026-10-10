@@ -444,6 +444,117 @@ try {
   assert.equal(st2.submissions[2][5].byAdmin, true);
   ok('교사 콘솔: 미제출 기업이 있으면 자동 기본값 대신 선택 지정 창 → 지정하고 진행');
 
+  // ── 12. 도입 슬라이드: 대기 화면 → 자격 TEST(퀴즈 공개·초성 힌트) → … → 기업 선택 → ROUND1 (TV 키보드만) ──
+  //   SHOT_DIR 을 주면 슬라이드마다 1600×900 스크린샷 저장
+  const shotDir = process.env.SHOT_DIR;
+  const shot = async (name) => {
+    await sleep(900); // 등장 연출이 끝난 뒤
+    assert.ok(await fits(), `${name}: 슬라이드가 화면 안에 들어감`);
+    if (shotDir) await tv.screenshot({ path: path.join(shotDir, `${name}.png`) });
+  };
+  // 슬라이드의 모든 요소가 상단 표시줄 아래 ~ 화면 안에 있는지 (가운데 정렬 내용은 위로도 넘칠 수 있어 요소 위치로 확인)
+  const fits = () => tv.evaluate(() => {
+    const top = document.querySelector('.topbar').getBoundingClientRect().bottom;
+    return [...document.querySelectorAll('.lz *')].every((el) => {
+      const r = el.getBoundingClientRect();
+      return !r.width || (r.top >= top - 1 && r.bottom <= innerHeight + 1 && r.left >= -1 && r.right <= innerWidth + 1);
+    });
+  });
+  const phase = async () => (await c.adminState()).quiz?.phase;
+  await c.admin('reset', { keepClaims: true });
+  await tv.bringToFront();
+  await tv.setViewport({ width: 1600, height: 900 });
+  await tv.waitForSelector('.lz-s-wait');
+  assert.match(await tv.$eval('#stage', (e) => e.textContent), /2\. 시장경제와 국가 간 거래[\s\S]*오늘은 기업을 직접 경영해봅니다[\s\S]*모둠별로 앉아 수업을 준비해주세요/);
+  await shot('01-wait');
+  await press(tv, 'ArrowRight', 'LESSON_TEST:-');
+  await tv.waitForSelector('.lz-s-testStart');
+  await shot('02-test');
+  // Q1: 문제 → 정답(③ + 이윤 = 수입 - 비용)
+  await press(tv, 'ArrowRight', 'LESSON_Q1:0');
+  await tv.waitForSelector('.lz-choices li');
+  assert.equal(await tv.$('.lz-formula'), null);
+  assert.equal(await tv.$('.lz-choices li.correct'), null);
+  assert.equal(await tv.$('.lz-hint-btn'), null, 'Q1 에는 힌트 버튼 없음');
+  await shot('03-q1');
+  await press(tv, 'ArrowRight', 'LESSON_Q1:1');
+  await tv.waitForSelector('.lz-formula');
+  assert.equal(await tv.$eval('.lz-formula', (e) => e.textContent), '이윤 = 수입 - 비용');
+  assert.match(await tv.$eval('.lz-choices li.correct', (e) => e.textContent), /③물건이나 서비스를 팔아 얻은 수입에서 생산에 들어간 비용을 뺀 금액/);
+  assert.ok(await fits(), 'Q1 정답 화면이 넘치지 않음');
+  await shot('04-q1-answer');
+  ok('도입: 대기 화면 → 자격 TEST → Q1 문제 → 정답 공개(③ 강조 · 이윤 = 수입 - 비용)');
+
+  // Q2: 문제만 → H 로 초성 힌트 → ← 로 힌트 숨김 → 힌트 버튼 → 정답 → 새로고침 → ← 로 힌트 화면 복원
+  await press(tv, 'ArrowRight', 'LESSON_Q2:0');
+  await tv.waitForSelector('.lz-blank');
+  assert.equal(await tv.$$eval('.lz-blank', (els) => els.length), 3);
+  assert.equal(await tv.$('.lz-hint'), null, '처음에는 힌트 없음');
+  await shot('05-q2');
+  await sleep(700);
+  await tv.keyboard.press('h');
+  await until(async () => (await phase()) === 'hint', 5000, 'H → 힌트');
+  await tv.waitForSelector('.lz-hint');
+  assert.deepEqual(await tv.$$eval('.lz-hint', (els) => els.map((e) => e.textContent)), ['ㅅㅅ', 'ㅍㅁ', 'ㅇㅈㄹ']);
+  assert.equal(await step(), 'LESSON_Q2:0');
+  assert.ok(await fits(), 'Q2 힌트 화면이 넘치지 않음');
+  await shot('06-q2-hint');
+  await sleep(700);
+  await tv.keyboard.press('ArrowLeft');
+  await until(async () => (await phase()) === 'question', 5000, '← → 힌트 숨김');
+  assert.equal(await step(), 'LESSON_Q2:0', '힌트만 숨기고 이전 슬라이드로 가지 않음');
+  await until(async () => !(await tv.$('.lz-hint')), 4000, 'TV 힌트 사라짐');
+  await sleep(700);
+  await tv.click('.lz-hint-btn');
+  await until(async () => (await phase()) === 'hint', 5000, '힌트 버튼 → 힌트');
+  await press(tv, 'ArrowRight', 'LESSON_Q2:1');
+  await until(async () => (await tv.$$eval('.lz-blank.filled', (els) => els.map((e) => e.textContent))).join() === '생산,판매,일자리', 4000, 'Q2 정답');
+  assert.equal(await tv.$('.lz-hint'), null);
+  assert.equal(await tv.$('.lz-hint-btn'), null, '정답 공개 뒤 힌트 버튼 없음');
+  await shot('07-q2-answer');
+  await tv.reload();
+  await tv.waitForSelector('.lz-blank.filled');
+  assert.equal(await step(), 'LESSON_Q2:1');
+  await until(() => tv.$eval('.presenter-badge', (e) => !e.classList.contains('hidden')), 5000, '새로고침 후 리모컨 진행');
+  await press(tv, 'ArrowLeft', 'LESSON_Q2:0');
+  assert.equal(await phase(), 'hint', '← 정답 → 힌트 화면 복원');
+  await tv.waitForSelector('.lz-hint');
+  ok('도입 Q2: 문제만 → H/힌트 버튼으로 초성 힌트 → ← 로 힌트 숨김 → 정답(생산·판매·일자리) · 새로고침 후 위치 유지 · ← 로 힌트 단계 복원');
+
+  // Q3: 힌트 없이 바로 정답
+  await press(tv, 'ArrowRight', 'LESSON_Q2:1');
+  await press(tv, 'ArrowRight', 'LESSON_Q3:0');
+  await tv.waitForSelector('.lz-blank');
+  assert.equal(await tv.$('.lz-hint'), null);
+  await press(tv, 'ArrowRight', 'LESSON_Q3:1');
+  await until(async () => (await tv.$$eval('.lz-blank.filled', (els) => els.map((e) => e.textContent))).join() === '소득,소비', 4000, 'Q3 정답');
+  await shot('08-q3-answer');
+  ok('도입 Q3: 힌트 없이 → 로 바로 정답(소득·소비)');
+
+  // 나머지 슬라이드 → 기업 선택 → ROUND1 (모두 화면 안에 들어감)
+  const rest = [
+    ['LESSON_PASS', 'pass', /통과!/], ['LESSON_COUNTRY', 'country', /여기는 돌멩민국입니다/], ['LESSON_COMPANIES', 'companies', /말랑컴퍼니[\s\S]*젤리팩토리[\s\S]*어떤 일이 생길까요/],
+    ['LESSON_MISSION', 'mission', /우리 기업을 직접 경영하라!/], ['LESSON_TOPIC', 'topic', /기업의 자유와 사회적 책임을 알아봅시다/],
+    ['LESSON_ACTIVITIES', 'activities', /활동 1[\s\S]*활동 2/], ['LESSON_ACT1', 'act1Title', /우리 기업, 어떻게 운영할까\?/],
+    ['LESSON_ACT1_ASK', 'act1Ask', /무엇을 중요하게 생각해야 할까요\?/], ['LESSON_HOWTO', 'howto', /상황 확인[\s\S]*시장 결과 확인/],
+  ];
+  for (const [i, [id, slide, re]] of rest.entries()) {
+    await press(tv, 'ArrowRight', `${id}:-`);
+    await tv.waitForSelector(`.lz-s-${slide}`);
+    await sleep(900); // 등장 연출이 끝난 뒤 크기 확인
+    assert.match(await tv.$eval('#stage', (e) => e.textContent), re, id);
+    assert.ok(await fits(), `${id} 화면이 넘치지 않음`);
+    await shot(`${String(i + 9).padStart(2, '0')}-${slide}`);
+  }
+  assert.doesNotMatch(await tv.$eval('#stage', (e) => e.textContent), /사회적 영향|환경|공정/, '진행 방법 안내에서 사회적 영향은 아직 말하지 않음');
+  await press(tv, 'ArrowRight', 'INTRO:-');
+  await tv.waitForSelector('.intro-title');
+  await press(tv, 'ArrowRight', 'ROUND1_SCENE:-');
+  await press(tv, 'ArrowLeft', 'INTRO:-');
+  await press(tv, 'ArrowLeft', 'LESSON_HOWTO:-');
+  assert.deepEqual((await c.adminState()).rounds[1], { computed: false });
+  ok('도입: 나머지 슬라이드(통과 → … → 진행 방법) 모두 화면 안에 → 기업 선택 → ROUND1 · ← 로 복귀');
+
   console.log(`\n브라우저 테스트 ${passed}개 통과`);
 } catch (e) {
   console.error(e);
