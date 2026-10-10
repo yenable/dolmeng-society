@@ -226,7 +226,8 @@ try {
   await press(tv, 'ArrowRight', 'ACT2_ASK:-');
   await tv.waitForSelector('.cz-s-act2Ask');
   const a2 = await stageText();
-  assert.match(a2, /활동 2[\s\S]*우리 기업, 정말 잘 운영한 걸까\?[\s\S]*지금 결과만 본다면,[\s\S]*어떤 기업이 가장 잘 운영했다고 생각하나요\?[\s\S]*그렇게 생각한 까닭은 무엇인가요\?/);
+  assert.doesNotMatch(a2, /활동 2|우리 기업, 정말 잘 운영한 걸까/, '활동 2 라벨·제목 없이 발문만');
+  assert.match(a2, /2\. 시장경제와 국가 간 거래[\s\S]*지금 결과만 본다면,[\s\S]*어떤 기업이 가장 잘 운영했다고 생각하나요\?[\s\S]*그렇게 생각한 까닭은 무엇인가요\?/);
   assert.doesNotMatch(a2, /사회적 책임|소비자|환경/, '활동 2 발문에서는 사회적 책임을 아직 말하지 않음');
   await conceptShot('31-act2-ask');
   await tv.reload(); // 새로고침해도 현재 슬라이드 유지
@@ -239,7 +240,7 @@ try {
 
   // 뉴스: 제목 타이핑 → (클릭 없이) 기사 내용 자동 등장
   await tv.waitForSelector('.news h1');
-  const headline = (await c.tv()).news.headline;
+  const headline = (await c.tv()).news.headline.replace('… ', '…\n'); // TV 제목은 '…' 뒤에서 줄바꿈
   await sleep(1300);
   const partial = await tv.$eval('.news h1', (e) => e.textContent);
   assert.ok(partial.length < headline.length, `타이핑 중이어야 함: "${partial}"`);
@@ -331,8 +332,8 @@ try {
   await tv.waitForSelector('#news-detail.show', { timeout: 15000 });
   await until(() => tv.$eval('.term-card', (e) => getComputedStyle(e).opacity === '1'), 6000, '용어 카드 등장');
   await sleep(1200);
-  assert.match(await tv.$eval('.news h1', (e) => e.textContent), /슬랑이 기업 5곳, 가격 함께 올렸다/);
-  assert.match(await tv.$eval('#news-detail .lines', (e) => e.textContent), /5곳이 모두 서로 약속하여[\s\S]*서로 짜고 가격이나 거래 조건을 정하는 것을 ‘담합’이라고/);
+  assert.match(await tv.$eval('.news h1', (e) => e.textContent), /^슬랑이 기업 5곳, 가격 함께 올려…\n싼 슬랑이 사라져$/);
+  assert.match(await tv.$eval('#news-detail .lines', (e) => e.textContent), /5곳이 모두 약속하여[\s\S]*서로 짜고 가격이나 거래 조건을 정하는 것을 ‘담합’이라고/);
   assert.equal(await tv.$eval('#news-detail .lines b.term', (e) => e.textContent), '‘담합’');
   assert.match(await tv.$eval('.term-card', (e) => e.textContent), /담합\s*기업들이 서로 짜고 가격이나 거래 조건을 정하는 것/);
   assert.equal(await tv.$$eval('#news-detail .chip', (els) => els.length), 5);
@@ -349,6 +350,9 @@ try {
   await tv.waitForSelector('.paper .article.in h2', { timeout: 6000 });
   await press(tv, 'ArrowRight', 'SOCIAL_SCORE_REVEAL:0');
   await tv.waitForSelector('.score-empty');
+  assert.equal(await tv.$eval('.score-empty', (e) => e.textContent), '기업이 이윤만을 쫓는 동안우리 사회는…');
+  assert.doesNotMatch(await stageText(), /아직 감점 없음/);
+  assert.match(await stageText(), /2\. 시장경제와 국가 간 거래[\s\S]*사회적 영향[\s\S]*돌멩민국 사회점수\s*100/);
   assert.equal(await tv.$eval('#snum', (e) => e.textContent), '100');
   const snum = () => tv.$eval('#snum', (e) => e.textContent);
   const expectScore = async (key, n, cats, txt) => {
@@ -490,6 +494,59 @@ try {
   assert.equal(await step(), 'ROUND1_MEETING:-');
   assert.equal((await c.adminState()).rounds[1].computed, false);
   ok('일반 TV: 학생 미제출 회의 중에는 넘어가지 않고 TV에 안내 · 결과 강제 계산 없음');
+
+  // ── 10-1. 기업 회의 타이머: 학생·TV·교사 같은 시간 · 교사 ±30초/±1분 · 새로고침 유지 · 0초에도 자동 제출 없음 ──
+  const secs = (t) => t.split(':').reduce((m, s) => m * 60 + Number(s), 0);
+  const tm = async (pg, sel) => {
+    const t = await pg.$eval(`${sel}[data-timer]`, (e) => (e.hidden ? null : e.querySelector('.tm-v').textContent));
+    return t && t !== '--:--' ? secs(t) : null;
+  };
+  const screens = [[page, '.play-timer', '학생'], [tv, '.tv-timer', 'TV'], [admin, '.admin-timer', '교사']];
+  const allNear = (want, tol = 3) => until(async () => {
+    const got = await Promise.all(screens.map(([pg, sel]) => tm(pg, sel)));
+    return got.every((x) => x != null && Math.abs(x - want) <= tol) && got;
+  }, 8000, `세 화면 모두 약 ${want}초`);
+  await page.waitForSelector('#opts .opt', { timeout: 8000 });
+  const start = await allNear(118);
+  assert.ok(Math.max(...start) - Math.min(...start) <= 1, `세 화면 같은 시간 ${start}`);
+  assert.match(await page.$eval('.play-timer', (e) => e.textContent), /남은 회의 시간\s*0[12]:\d\d/);
+  const btn = (sel) => admin.$eval(`#nav ${sel}`, (e) => e.click());
+  await admin.waitForSelector('#nav [data-timer-add="60"]');
+  for (const sec of [60, -30, 30, -60, -60]) {
+    const cur = await tm(admin, '.admin-timer');
+    await btn(`[data-timer-add="${sec}"]`);
+    await allNear(cur + sec, 4);
+  }
+  ok('회의 타이머: 회의가 열리면 02:00 자동 시작 · 학생·TV·교사 같은 시간 · 교사 +1분 −30초 +30초 −1분 반영');
+  const beforeReload = await tm(admin, '.admin-timer');
+  await page.reload();
+  await tv.reload();
+  await admin.reload();
+  await page.waitForSelector('#opts .opt', { timeout: 8000 });
+  const after = await allNear(beforeReload - 3, 4);
+  assert.ok(after.every((x) => x <= beforeReload), `새로고침해도 2분으로 돌아가지 않음 ${after}`);
+  ok('회의 타이머: 학생·TV·교사 새로고침 후에도 남은 시간 유지');
+  await admin.waitForSelector('#nav [data-timer-op="pause"]');
+  await btn('[data-timer-op="pause"]');
+  await until(() => page.$eval('.play-timer', (e) => e.classList.contains('paused')), 6000, '일시정지');
+  const p1 = await tm(page, '.play-timer');
+  await sleep(2200);
+  assert.equal(await tm(page, '.play-timer'), p1, '일시정지 중에는 줄지 않음');
+  await admin.waitForSelector('#nav [data-timer-op="resume"]');
+  await btn('[data-timer-op="resume"]');
+  await until(() => page.$eval('.play-timer', (e) => !e.classList.contains('paused')), 6000, '다시 시작');
+  await btn('[data-timer-add="-60"]');
+  await allNear(0, 0);
+  for (const [pg, sel, who] of screens) {
+    assert.ok(await pg.$eval(sel, (e) => e.classList.contains('over') && e.textContent.includes('00:00') && e.textContent.includes('시간 종료')), `${who}: 00:00 시간 종료`);
+  }
+  await sleep(2500);
+  assert.equal(await step(), 'ROUND1_MEETING:-', '0초가 되어도 자동 진행 없음');
+  assert.ok(Object.values((await c.adminState()).submissions[1]).every((x) => !x), '0초가 되어도 자동 제출 없음');
+  assert.ok(await page.$('#submit'), '학생은 계속 입력·제출 가능');
+  await btn('[data-timer-op="reset"]');
+  await allNear(118);
+  ok('회의 타이머: 일시정지/다시 시작 · 0초 → 00:00 시간 종료 표시, 자동 제출·자동 진행 없음 · 2분으로 초기화');
 
   // ── 11. 교사 콘솔: 미제출 기업 선택 지정 창 → 지정하고 진행 ──────────────
   await c.admin('testAutoSubmit', { scenario: 'random' });

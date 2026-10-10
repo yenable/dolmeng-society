@@ -155,19 +155,20 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .blackout-1 { font-size: 9rem; font-weight: 900; opacity: 0; animation: fadeIn 2s .6s ease forwards; margin: 0; }
 .blackout-2 { font-size: 3.6rem; font-weight: 700; line-height: 1.6; color: #b9bbc2; opacity: 0; animation: fadeUp 1.6s 3s ease forwards; margin-top: 3rem; }
 
-.news { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 118rem; }
+/* --nz: 기사가 화면보다 길면 display.js(fitNews)가 줄이는 글자 크기 비율 */
+.news { --nz: 1; flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; max-width: 118rem; }
 .news .tagline { display: flex; align-items: center; gap: 1.2rem; font-size: 1.8rem; font-weight: 800; animation: fadeIn .6s ease both; }
 .news .live { background: #c7353b; color: #fff; padding: .3rem 1rem; border-radius: .4rem; letter-spacing: .1em; }
 .news .cat { color: #e3a33b; }
-.news h1 { font-size: 6.4rem; font-weight: 900; letter-spacing: -0.03em; margin: 1.6rem 0 2.4rem; line-height: 1.15; color: #fff; animation: fadeUp .8s .3s ease both; border-left: 1rem solid #c7353b; padding-left: 2.4rem; }
-.news .lines p { font-size: 2.5rem; line-height: 1.65; margin: 0 0 1.4rem; color: #d3d4d8; font-weight: 500; }
-.news .chips { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.6rem; }
+.news h1 { white-space: pre-line; font-size: calc(6.4rem * var(--nz)); font-weight: 900; letter-spacing: -0.03em; margin: calc(1.6rem * var(--nz)) 0 calc(2.4rem * var(--nz)); line-height: 1.15; color: #fff; animation: fadeUp .8s .3s ease both; border-left: 1rem solid #c7353b; padding-left: 2.4rem; }
+.news .lines p { font-size: calc(2.5rem * var(--nz)); line-height: 1.6; margin: 0 0 calc(1.2rem * var(--nz)); color: #d3d4d8; font-weight: 500; }
+.news .chips { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: calc(1.4rem * var(--nz)); }
 /* 기사 내용·관련 기업: 제목 타이핑이 끝나고 잠시 뒤 .show 가 붙으면 자동으로 차례로 등장 */
 #news-detail .lines p, #news-detail .chips { opacity: 0; }
 #news-detail.show .lines p { animation: fadeUp .8s ease both; }
 #news-detail.show .chips { animation: fadeIn .9s ease both; }
 #news-detail.instant .lines p, #news-detail.instant .chips { animation: none; opacity: 1; }
-.news .chip { background: #1d1e22; border: .15rem solid #34363c; border-radius: 99rem; padding: .6rem 1.4rem; font-size: 1.6rem; font-weight: 700; display: flex; align-items: center; gap: .7rem; }
+.news .chip { background: #1d1e22; border: .15rem solid #34363c; border-radius: 99rem; padding: .6rem 1.4rem; font-size: calc(1.6rem * var(--nz)); font-weight: 700; display: flex; align-items: center; gap: .7rem; }
 .news .chip small { color: #8d9097; font-weight: 600; }
 /* 하단 속보 티커: 화면 오른쪽 바깥 → 왼쪽 바깥까지 일정한 속도로 한 줄 이동, 끝나면 다시 오른쪽에서.
    같은 뉴스 화면에서는 DOM 을 다시 만들지 않으므로(display.js) 상태 갱신이 들어와도 처음부터 다시 시작되지 않음 */
@@ -201,7 +202,8 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .scat .sg small { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .25rem; font-size: 1.4rem; color: #9a9ca3; font-weight: 700; }
 .scat .sg small .cdot { width: .9rem; height: .9rem; }
 .scat .sg small em { font-style: normal; color: #55585f; margin: 0 .3rem; }
-.score-empty { font-size: 3rem; color: #8d9097; font-weight: 800; }
+/* 사회점수 시작 화면 보조 문구: 감점 공개 전, 무슨 일이 있었는지 궁금하게 */
+.score-empty { font-size: 4.2rem; line-height: 1.45; letter-spacing: -0.02em; color: #c9cbd1; font-weight: 800; border-left: .6rem solid #c7353b; padding-left: 2.8rem; }
 .score-q { display: none; }
 
 /* 최종 장면: 점수가 화면 정중앙으로 이동(FLIP)·커짐·빨간색 → 0.8초 뒤 발문 */
@@ -385,10 +387,10 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .cz-key i { font-style: normal; font-size: 2.6rem; line-height: 1; }
 .cz-keys em { font-style: normal; font-size: 2.4rem; font-weight: 900; color: var(--muted); }
 .cz-key-line { margin-top: 3.2rem; font-size: 3.1rem; font-weight: 900; letter-spacing: -0.02em; background: var(--ink); color: #fff; padding: 1.1rem 3.4rem; border-radius: 1.6rem; }
-.cz-a2 { background: #2f7bf0; }
-.cz-a2-title { color: var(--ink-2); margin-bottom: 3.4rem; }
+/* 활동 2 도입 발문: 질문만 크게 (PPT 질문 슬라이드) */
+.cz-a2q { font-size: 6.4rem; line-height: 1.38; }
+.cz-a2sub { margin: 4.4rem 0 0; padding-top: 2.6rem; border-top: .3rem solid #2f7bf0; font-size: 3rem; font-weight: 800; color: var(--ink-2); }
 .cz-q { font-size: 5.2rem; }
-.cz-sub { margin: 3rem 0 0; font-size: 2.6rem; font-weight: 700; color: var(--muted); }
 .cz-s-csrAsk .lz-badge { font-size: 2.6rem; color: #2f7bf0; margin-bottom: 2.6rem; }
 .cz-csr-title { font-size: 5rem; margin-bottom: 1.6rem; }
 .cz-def { font-size: 2.8rem; margin-bottom: 3.6rem; }
@@ -412,8 +414,12 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .news .lines b.term { color: #fff; font-weight: 900; }
 .term-card { background: #1d1e22; border: .2rem solid #e3a33b; border-radius: 1.6rem; padding: 2rem 2.2rem; }
 .term-card small { display: block; font-size: 1.5rem; font-weight: 800; color: #e3a33b; letter-spacing: .04em; }
-.term-card b { display: block; font-size: 4.4rem; font-weight: 900; color: #fff; margin: .4rem 0 .8rem; }
-.term-card p { margin: 0; font-size: 2.1rem; line-height: 1.5; color: #d3d4d8; font-weight: 600; }
+.term-card b { display: block; font-size: calc(4.4rem * var(--nz)); font-weight: 900; color: #fff; margin: .4rem 0 .8rem; }
+.term-card p { margin: 0; font-size: calc(2.1rem * var(--nz)); line-height: 1.5; color: #d3d4d8; font-weight: 600; }
 #news-detail .term-card { opacity: 0; }
 #news-detail.show .term-card { animation: fadeUp .8s ease both; }
 #news-detail.instant .term-card { animation: none; opacity: 1; }
+
+/* 기업 회의 타이머 (TV) */
+.tv-timer { font-size: 3rem; margin: 2.2rem 0 0; }
+.special .tv-timer:not(.low):not(.over):not(.paused) { background: #f2c14e; color: #15132b; }

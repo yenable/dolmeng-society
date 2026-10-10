@@ -135,6 +135,7 @@ export function createState(keepTeams = null) {
     stepId: FIRST_STEP_ID,
     revealIndex: 0,
     quizHints: {}, // 도입 퀴즈(Q2·Q3)의 초성 힌트 표시 여부 { 단계 id: true }
+    timer: null, // 기업 회의 타이머 { stepId, endsAt(ms), pausedLeft(ms | null) } — 세 화면이 같은 값을 봄
     teams,
     submissions: { 1: {}, 2: {}, 3: {}, 4: {} },
     rounds: {},
@@ -421,7 +422,60 @@ export class GameEngine {
     this.state.revealIndex = dir < 0 ? this.revealTotal(st) : 0;
     // 퀴즈에 앞에서 들어오면 문제만 보이는 상태로 시작. 뒤에서 돌아오면 정답 화면 + 그때 쓴 힌트 기록 유지(← 로 복원)
     if (st.quiz && dir > 0) this.setHint(st, false);
+    // 기업 회의: 앞에서 들어오면 2분 타이머 새로 시작. 뒤에서 돌아오면 그 회의의 남은 시간 그대로
+    if (st.kind === 'meeting' && (dir > 0 || this.state.timer?.stepId !== st.id)) this.startTimer(st);
     this.log(`진행: ${st.label}`);
+  }
+
+  // ── 기업 회의 타이머 (서버 상태 = 기준. 화면은 받은 남은 시간을 받은 시각부터 줄여 보여줌) ─────
+  startTimer(st, ms = C.MEETING_TIMER_MS) {
+    this.state.timer = { stepId: st.id, endsAt: Date.now() + ms, pausedLeft: null };
+  }
+
+  timerLeft(now = Date.now()) {
+    const t = this.state.timer;
+    if (!t) return 0;
+    return t.pausedLeft ?? Math.max(0, t.endsAt - now);
+  }
+
+  // 지금 단계의 회의 타이머 (회의 단계가 아니거나 이미 결과가 나온 라운드면 null)
+  timerPublic() {
+    const st = this.step;
+    const t = this.state.timer;
+    if (st.kind !== 'meeting' || !t || t.stepId !== st.id || this.state.rounds[st.round]?.computed) return null;
+    return { leftMs: this.timerLeft(), paused: t.pausedLeft != null, durationMs: C.MEETING_TIMER_MS };
+  }
+
+  // 교사 콘솔: add(±초) · pause · resume · reset(2분으로)
+  timer(from, op, sec) {
+    this.checkFrom(from);
+    const st = this.step;
+    if (!this.timerPublic()) throw new GameError('기업 회의 중에만 타이머를 조절할 수 있습니다.');
+    const t = this.state.timer;
+    const now = Date.now();
+    const set = (left) => {
+      const ms = clamp(Math.round(left), 0, C.MEETING_TIMER_MAX_MS);
+      if (t.pausedLeft != null) t.pausedLeft = ms;
+      else t.endsAt = now + ms;
+    };
+    if (op === 'add') {
+      const d = Number(sec);
+      if (!Number.isFinite(d) || !d) throw new GameError('잘못된 시간입니다.');
+      set(this.timerLeft(now) + d * 1000);
+      this.log(`${st.label} · 타이머 ${d > 0 ? '+' : '−'}${Math.abs(d)}초`);
+    } else if (op === 'pause') {
+      if (t.pausedLeft == null) t.pausedLeft = this.timerLeft(now);
+      this.log(`${st.label} · 타이머 일시정지`);
+    } else if (op === 'resume') {
+      if (t.pausedLeft != null) {
+        t.endsAt = now + t.pausedLeft;
+        t.pausedLeft = null;
+      }
+      this.log(`${st.label} · 타이머 다시 시작`);
+    } else if (op === 'reset') {
+      this.startTimer(st);
+      this.log(`${st.label} · 타이머 2분으로 초기화`);
+    } else throw new GameError('알 수 없는 타이머 명령');
   }
 
   // ── 미제출 확인 (자동 기본값 없음) ──────────────────────────────────
@@ -704,6 +758,7 @@ export class GameEngine {
     const s = this.state;
     const v = { ...this.base('display'), companies: this.companiesPublic(conns), submittedCount: this.submittedCount(), totalTeams: TOTAL };
     if (st.kind === 'meeting') v.submittedTeams = Object.keys(s.submissions[st.round]).map(Number);
+    v.timer = this.timerPublic();
     if (st.kind === 'reflection') v.submittedTeams = Object.keys(s.reflections).map(Number);
     if (st.round) v.roundInfo = ROUNDS[st.round];
     if (['responses', 'result', 'rank'].includes(st.kind)) v.responses = this.responsesPublic(st.round);
@@ -775,6 +830,7 @@ export class GameEngine {
       v.roundComputed = !!s.rounds[r]?.computed;
       v.mySubmission = this.subPublic(r, teamId);
       v.canSubmit = st.kind === 'meeting' && !v.roundComputed && !v.mySubmission;
+      v.timer = this.timerPublic();
       if (['result', 'rank'].includes(st.kind) && v.roundComputed) {
         v.myResult = this.resultPublic(r, teamId);
         if (r === 4) v.collusion = { count: s.rounds[4].collusion.count, total: TOTAL };
@@ -848,6 +904,7 @@ export class GameEngine {
       revealTotal: this.revealTotal(),
       scorePhases: this.scorePhases(),
       quiz: st.quiz ? { type: st.quiz, phase: this.quizPhase(), hint: this.hintShown() } : null,
+      timer: this.timerPublic(),
       nextAction: this.nextActionInfo(),
       prevLabel: prv?.label ?? null,
       steps: STEPS.map((x) => ({

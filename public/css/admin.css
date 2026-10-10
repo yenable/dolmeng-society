@@ -127,3 +127,9 @@ fieldset.assign legend { display: flex; align-items: center; gap: 6px; font-weig
 fieldset.assign legend .muted { font-weight: 600; font-size: 12.5px; }
 .radio-list label:has(input:disabled) { opacity: .45; }
 .quiz-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+
+/* 기업 회의 타이머 */
+.timer-box { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: var(--bg); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; }
+.admin-timer { font-size: 24px; }
+.timer-btns { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.timer-btns i { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }

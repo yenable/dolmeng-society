@@ -96,3 +96,16 @@ button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   body:not(.display) *, body:not(.display) *::before, body:not(.display) *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ── 기업 회의 타이머 (학생·TV·교사 공통) ── */
+.mtimer { display: inline-flex; align-items: center; gap: .5em; padding: .3em .9em; border-radius: 99em; background: var(--ink); color: #fff; font-weight: 800; line-height: 1.2; transition: background .4s ease, color .4s ease; }
+.mtimer[hidden] { display: none !important; }
+.mtimer .tm-ic { font-size: .95em; }
+.mtimer .tm-k { font-size: .7em; opacity: .75; font-weight: 700; }
+.mtimer .tm-v { font-size: 1.15em; font-weight: 900; min-width: 3.1em; text-align: center; }
+.mtimer .tm-note { font-size: .7em; font-weight: 800; }
+.mtimer .tm-note:empty { display: none; }
+.mtimer.low { background: #e8860c; animation: tmPulse 1.6s ease-in-out infinite; }
+.mtimer.over { background: var(--bad); }
+.mtimer.paused { background: #6b7280; animation: none; }
+@keyframes tmPulse { 50% { opacity: .78; } }

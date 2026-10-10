@@ -2,7 +2,7 @@
 // 이 화면에서도 키보드·PPT 프레젠터 리모컨으로 앞뒤 진행 가능 (교사 PIN 한 번 확인, 이 컴퓨터에 기억)
 //   /display?presenter=1 : 예전 주소 호환 (처음부터 PIN 입력 창)
 //   /display?preview=1   : 교사 콘솔 미리보기 (음소거, 조작 없음)
-import { $, $$, esc, won, signedWon, medal, connectLive, netBanner, animateNumber, fitText, api, storage } from './common.js';
+import { $, $$, esc, won, signedWon, medal, connectLive, netBanner, animateNumber, fitText, api, storage, meetingTimer, timerHtml } from './common.js';
 import { unlockAudio, setMuted, typeClick, newsSting, bell, drumroll, accent, fanfare } from './sfx.js';
 
 const params = new URLSearchParams(location.search);
@@ -12,6 +12,7 @@ const stage = $('#stage');
 let view = null;
 let lastKey = '';
 let live = null;
+const clock = meetingTimer(); // 기업 회의 타이머 (서버 상태 기준)
 
 const remPx = () => parseFloat(getComputedStyle(document.documentElement).fontSize);
 setMuted(PREVIEW);
@@ -78,12 +79,14 @@ function onState(v) {
     submittedCount: ['meeting', 'reflection'].includes(k) ? 0 : v.submittedCount,
     submittedTeams: 0,
     companies: 0,
+    timer: 0, // 타이머는 다시 그리지 않고 숫자만 갱신
   });
   if (key !== lastKey) {
     lastKey = key;
     cancelScene();
     render(v, prev);
   }
+  clock.set(v.timer);
   updateLive(v);
 }
 
@@ -288,12 +291,11 @@ const CONCEPT_SLIDES = {
       <div class="cz-key-line">${esc(L.key)}</div>
     </div>`,
 
+  // 활동 2 도입 발문: PPT 질문 슬라이드처럼 발문만 크게 + 아래 보조 발문
   act2Ask: (L) => `
     <div class="center">
-      <div class="lz-act-no cz-a2">${esc(L.eyebrow)}</div>
-      <h1 class="lz-title md cz-a2-title">${esc(L.title)}</h1>
-      ${lines(L.ask, 'lz-bigq cz-q')}
-      <p class="cz-sub">${esc(L.sub)}</p>
+      ${lines(L.ask, 'lz-bigq cz-a2q')}
+      <p class="cz-a2sub">${esc(L.sub)}</p>
     </div>`,
 
   csrAsk: (L) => `
@@ -394,6 +396,7 @@ const RENDER = {
       <div class="center ${ri.special ? 'special' : ''}">
         <h1 class="meeting-title">기업 회의 중<span class="dots"></span></h1>
         <p class="meeting-q">${esc(ri.question)}</p>
+        ${timerHtml('tv-timer')}
         <div class="meeting-count"><b id="cnt">${v.submittedCount}</b> / ${v.totalTeams} 기업 결정 완료</div>
         <div class="company-row" id="companies"></div>
       </div>`;
@@ -506,12 +509,14 @@ const RENDER = {
       stage.innerHTML = '<div class="center"></div>';
       return;
     }
+    // 제목은 '…' 뒤에서 줄바꿈 (두 마디가 한 줄씩 또렷하게, h1 은 white-space: pre-line)
+    const head = n.headline.replace('… ', '…\n');
     if (sameStep(v, prev) && $('.news', stage)) {
       // 같은 뉴스 화면: 티커·제목 DOM 을 다시 만들지 않음 (티커 애니메이션이 처음부터 다시 시작되지 않게)
       const h1 = $('.news h1', stage);
-      if (h1.textContent !== n.headline) {
+      if (h1.textContent !== head) {
         h1.classList.remove('typing');
-        h1.textContent = n.headline;
+        h1.textContent = head;
       }
       $('#news-detail').classList.add('show');
       return;
@@ -521,7 +526,7 @@ const RENDER = {
     stage.innerHTML = `${topbar(v, '돌멩민국 경제뉴스')}
       <div class="news">
         <div class="tagline"><span class="live">속보</span><span>[${esc(n.tag)}]</span><span class="cat">${esc(n.category)}</span></div>
-        <h1 class="typed">${back ? esc(n.headline) : ''}</h1>
+        <h1 class="typed">${back ? esc(head) : ''}</h1>
         <div id="news-detail" class="${back ? 'show instant' : ''} ${n.concept ? 'with-term' : ''}">
           <div class="lines">${n.lines.map((l, i) => `<p style="animation-delay:${i * 0.6}s">${termHtml(esc(l), n.concept)}</p>`).join('')}</div>
           ${n.concept ? `<aside class="term-card" style="animation-delay:${0.2 + n.lines.length * 0.6}s"><small>오늘의 경제 용어</small><b>${esc(n.concept.term)}</b><p>${esc(n.concept.desc)}</p></aside>` : ''}
@@ -529,11 +534,12 @@ const RENDER = {
         </div>
       </div>
       <div class="ticker"><div class="ticker-track">${tickerText}</div></div>`;
+    fitNews(head, back);
     if (back) return;
     const my = sceneSeq;
     newsSting();
     later(700)
-      .then(() => (my === sceneSeq ? typeText($('.news h1', stage), n.headline) : false))
+      .then(() => (my === sceneSeq ? typeText($('.news h1', stage), head) : false))
       .then((typed) => {
         if (typed) at(1000, () => $('#news-detail')?.classList.add('show'));
       });
@@ -611,6 +617,25 @@ const RENDER = {
   },
 };
 
+// 뉴스 기사 전체(끝까지 타이핑된 제목 + 내용 + 용어 카드 + 기업)가 티커 위 화면 안에 들어가도록
+// 글자 크기 비율(--nz)을 줄임. 기사 내용은 아직 투명해도 자리는 차지하므로 처음에 한 번 재면 됨.
+function fitNews(headline, typedAlready) {
+  const news = $('.news', stage);
+  const h1 = $('h1', news);
+  if (!news || !h1) return;
+  h1.textContent = headline;
+  const first = news.firstElementChild;
+  const last = news.lastElementChild;
+  const fits = () => last.getBoundingClientRect().bottom - first.getBoundingClientRect().top <= news.clientHeight + 1;
+  let z = 1;
+  news.style.setProperty('--nz', z);
+  while (!fits() && z > 0.6) {
+    z = Math.round((z - 0.04) * 100) / 100;
+    news.style.setProperty('--nz', z);
+  }
+  if (!typedAlready) h1.textContent = '';
+}
+
 // 공정 경쟁 뉴스: 기사 속 ‘담합’ 용어를 강조 (html 은 이미 escape 된 문자열)
 const termHtml = (html, concept) => (concept ? html.replace(`‘${esc(concept.term)}’`, (m) => `<b class="term">${m}</b>`) : html);
 
@@ -636,7 +661,7 @@ function renderScore(v, sc, newest) {
         <div class="score-num num ${cur < 0 ? 'neg' : ''} ${sc.done && !noLoss ? 'red' : ''}" id="snum">${scoreText(newest ? newest.before : cur)}</div>
       </div>
       <div class="score-cats">
-        ${cats.length ? cats.map((c, i) => scoreCard(c, newest && i === cats.length - 1)).join('') : '<div class="score-empty">아직 감점 없음.</div>'}
+        ${cats.length ? cats.map((c, i) => scoreCard(c, newest && i === cats.length - 1)).join('') : '<div class="score-empty">기업이 이윤만을 쫓는 동안<br>우리 사회는…</div>'}
       </div>
       ${scoreQuestions(sc)}
     </div>`;

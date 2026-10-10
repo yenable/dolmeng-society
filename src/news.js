@@ -64,13 +64,14 @@ export function buildNews(state) {
       key: 'fairness',
       tag: '돌멩민국 경제속보',
       category: '공정 경쟁',
-      headline: col.count === total ? '슬랑이 기업 5곳, 가격 함께 올렸다… 싼 슬랑이 사라져' : '슬랑이 기업들, 가격 함께 올렸다… 소비자 부담 커져',
+      // 16:9 TV 한 화면에 들어가도록 짧게: 사실(실제 참여 기업·수) → 담합의 뜻 → 소비자·공정 경쟁에 미치는 영향
+      headline: col.count === total ? `슬랑이 기업 ${total}곳, 가격 함께 올려… 싼 슬랑이 사라져` : '슬랑이 기업들, 가격 함께 올려… 소비자 부담 커져',
       lines: [
         col.count === total
-          ? `돌멩민국의 슬랑이 기업 5곳이 모두 서로 약속하여 슬랑이 가격을 ${price} 이상으로 함께 올린 사실이 알려졌습니다.`
-          : `돌멩민국 ${total}개 슬랑이 기업 가운데 ${joinNames(col.members.map(companyName))} ${col.count}곳이 서로 약속하여 슬랑이 가격을 ${price} 이상으로 함께 올린 사실이 알려졌습니다.`,
-        `전문가들은 “이처럼 기업들이 서로 짜고 가격이나 거래 조건을 정하는 것을 ‘${COLLUSION_TERM.term}’이라고 한다”고 설명했습니다.`,
-        '“용돈으로 슬랑이를 사기가 너무 어려워졌어요.” 담합이 이루어지면 소비자는 더 비싼 가격에 상품을 사게 되고, 공정한 경쟁도 어려워집니다.',
+          ? `슬랑이 기업 ${total}곳이 모두 약속하여 슬랑이 가격을 ${price} 이상으로 함께 올린 사실이 알려졌습니다.`
+          : `${col.members.map(companyName).join(', ')} ${col.count}곳이 약속하여 슬랑이 가격을 ${price} 이상으로 함께 올린 사실이 알려졌습니다.`,
+        `이처럼 기업들이 서로 짜고 가격이나 거래 조건을 정하는 것을 ‘${COLLUSION_TERM.term}’이라고 합니다.`,
+        '담합이 이루어지면 소비자는 더 비싼 가격에 상품을 사게 되고, 공정한 경쟁도 어려워집니다.',
       ],
       concept: COLLUSION_TERM,
       companies: col.members.map((id) => chip(id, '공동 가격 참여')),

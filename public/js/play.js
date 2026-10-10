@@ -1,6 +1,6 @@
 // 학생(모둠) 화면 — 사이트 기본 주소 / (그리고 /play)
 import {
-  $, $$, esc, won, signedWon, medal, connectLive, connBadge, api, toast, animateNumber, storage, withJosa, josa,
+  $, $$, esc, won, signedWon, medal, connectLive, connBadge, api, toast, animateNumber, storage, withJosa, josa, meetingTimer, timerHtml,
 } from './common.js';
 
 // 같은 브라우저에서 여러 탭으로 테스트할 때: /play?t=2 처럼 구분
@@ -16,6 +16,7 @@ let hudPrev = null;
 let form = {}; // 현재 입력 중인 선택/이유 (새로고침해도 복구되도록 localStorage에 저장)
 let formKey = '';
 let reconnecting = !!token; // 저장된 토큰으로 다시 들어온 경우
+const clock = meetingTimer(); // 기업 회의 남은 시간 (서버 상태 기준, 입력 중인 화면은 다시 그리지 않음)
 
 const main = $('#main');
 const hud = $('#hud');
@@ -69,6 +70,7 @@ function onState(v) {
   }
   view = v;
   render();
+  clock.set(v.timer);
 }
 
 // ── 입력 임시 저장 ─────────────────────────────────────
@@ -103,6 +105,8 @@ function render() {
     $$('[data-live="submitted"]').forEach((el) => { el.textContent = v.submittedCount; });
     return;
   }
+  // 새 화면은 맨 위부터 (새 라운드가 열리면 타이머·제목이 바로 보이게)
+  if (screenKey && key.split('|').slice(0, 3).join('|') !== screenKey.split('|').slice(0, 3).join('|')) window.scrollTo(0, 0);
   screenKey = key;
   if (!v.me) return renderSelect(v);
   const k = v.step.kind;
@@ -255,6 +259,7 @@ function renderRoundForm(v) {
   if (form.choice != null && !ri.options.some((o) => String(o.value) === String(form.choice) && affordable(o))) form.choice = null;
 
   main.innerHTML = `
+    <div class="timer-row">${timerHtml('play-timer', '남은 회의 시간')}</div>
     ${roundHead(ri)}
     <div class="options ${ri.special ? 'collusion' : ''}" style="--cols:${ri.options.length}" id="opts">
       ${ri.options.map((o) => {
@@ -359,6 +364,7 @@ function renderSubmitted(v) {
   main.innerHTML = `
     <section class="center-wrap">
       <p class="eyebrow">ROUND ${v.roundInfo.round} · ${esc(v.roundInfo.title)}</p>
+      ${k === 'meeting' ? `<div class="timer-row center">${timerHtml('play-timer', '남은 회의 시간')}</div>` : ''}
       ${sub ? `
         <div class="done-badge pop">✓ ${sub.byDefault ? '기본 선택 적용' : '제출 완료'}</div>
         <p class="sentence">${sentenceHtml(sub)}</p>

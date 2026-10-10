@@ -504,7 +504,7 @@ test('활동 1 → 2: 최종 이윤 순위 → 기업의 자유 → 활동 2 발
   assert.equal(fr.concept.key, '기업은 자신의 판단에 따라 자유롭게 경제활동을 할 수 있습니다.');
   assert.ok(!fr.score && !fr.news && !fr.headlines, '기업의 자유 화면에 사회적 영향 데이터 없음');
   const a2 = slide('ACT2_ASK').concept;
-  assert.equal(a2.title, '우리 기업, 정말 잘 운영한 걸까?');
+  assert.deepEqual(Object.keys(a2), ['ask', 'sub'], '활동 2 라벨·제목 없이 발문만');
   assert.equal(a2.ask.join(' '), '지금 결과만 본다면, 어떤 기업이 가장 잘 운영했다고 생각하나요?');
   assert.equal(a2.sub, '그렇게 생각한 까닭은 무엇인가요?');
   const ask = JSON.stringify(slide('CSR_ASK').concept);
@@ -544,10 +544,11 @@ test('담합: 활동 1(학생·TV)에는 용어 없음 → 공정 경쟁 뉴스�
   }
   g.goto('NEWS_FAIRNESS');
   const n = g.displayView(conns).news;
-  assert.equal(n.headline, '슬랑이 기업들, 가격 함께 올렸다… 소비자 부담 커져');
-  assert.match(n.lines[0], /5개 슬랑이 기업 가운데 말랑컴퍼니, 몽글기업과 쫀득상사 3곳이 서로 약속하여/);
+  assert.equal(n.headline, '슬랑이 기업들, 가격 함께 올려… 소비자 부담 커져');
+  assert.equal(n.lines[0], '말랑컴퍼니, 몽글기업, 쫀득상사 3곳이 약속하여 슬랑이 가격을 30,000원 이상으로 함께 올린 사실이 알려졌습니다.');
+  assert.equal(n.lines.length, 3);
   assert.match(n.lines[1], /기업들이 서로 짜고 가격이나 거래 조건을 정하는 것을 ‘담합’이라고/);
-  assert.match(n.lines[2], /더 비싼 가격에 상품을 사게 되고, 공정한 경쟁도 어려워집니다/);
+  assert.match(n.lines[2], /^담합이 이루어지면 소비자는 더 비싼 가격에 상품을 사게 되고, 공정한 경쟁도 어려워집니다/);
   assert.deepEqual(n.concept, { term: '담합', desc: '기업들이 서로 짜고 가격이나 거래 조건을 정하는 것' });
   assert.deepEqual(n.companies.map((c) => c.id), [1, 3, 4]);
   // 5곳 모두 참여
@@ -555,8 +556,76 @@ test('담합: 활동 1(학생·TV)에는 용어 없음 → 공정 경쟁 뉴스�
   goto(all, 'ROUND4_MEETING');
   submitAll(all, 4, ['join', 'join', 'join', 'join', 'join']);
   goto(all, 'NEWS_FAIRNESS');
-  assert.match(all.news().fairness.lines[0], /5곳이 모두 서로 약속하여/);
+  assert.equal(all.news().fairness.headline, '슬랑이 기업 5곳, 가격 함께 올려… 싼 슬랑이 사라져');
+  assert.match(all.news().fairness.lines[0], /^슬랑이 기업 5곳이 모두 약속하여/);
   assert.equal(all.news().fairness.companies.length, 5);
+});
+
+// ── 기업 회의 타이머 ─────────────────────────────────────────────
+test('회의 타이머: 회의 단계에 앞으로 들어오면 2분 자동 시작 · 세 화면이 같은 값 · 회의가 아니면 없음', () => {
+  const g = new GameEngine();
+  g.testAutoJoin();
+  for (let r = 1; r <= 4; r++) {
+    goto(g, `ROUND${r}_SCENE`);
+    assert.equal(g.displayView(conns).timer, null);
+    g.next(`ROUND${r}_SCENE`);
+    assert.equal(g.state.stepId, `ROUND${r}_MEETING`);
+    const tv = g.displayView(conns).timer;
+    assert.ok(tv && !tv.paused && tv.leftMs > C.MEETING_TIMER_MS - 1000 && tv.leftMs <= C.MEETING_TIMER_MS, `${r}라운드 2분`);
+    assert.ok(Math.abs(g.teamView(1, conns).timer.leftMs - tv.leftMs) < 50);
+    assert.ok(Math.abs(g.adminView(conns).timer.leftMs - tv.leftMs) < 50);
+    g.testAutoSubmit('random', r);
+    g.next(`ROUND${r}_MEETING`);
+    assert.equal(g.displayView(conns).timer, null, '선택 공개 단계에는 타이머 없음');
+    assert.equal(g.adminView(conns).timer, null);
+  }
+});
+
+test('회의 타이머: ±30초·±1분 · 0 아래로 내려가지 않음 · 일시정지/다시 시작 · 2분 초기화 · 0초여도 자동 제출 없음', () => {
+  const g = new GameEngine();
+  g.testAutoJoin();
+  goto(g, 'ROUND2_MEETING');
+  const left = () => g.adminView(conns).timer.leftMs;
+  const near = (ms) => assert.ok(Math.abs(left() - ms) < 300, `${left()} ≈ ${ms}`);
+  g.timer('ROUND2_MEETING', 'add', 30); near(150_000);
+  g.timer('ROUND2_MEETING', 'add', 60); near(210_000);
+  g.timer('ROUND2_MEETING', 'add', -60); near(150_000);
+  g.timer('ROUND2_MEETING', 'add', -30); near(120_000);
+  g.timer('ROUND2_MEETING', 'pause');
+  assert.equal(g.adminView(conns).timer.paused, true);
+  const p = left();
+  g.timer('ROUND2_MEETING', 'add', -30); assert.equal(left(), p - 30_000);
+  g.timer('ROUND2_MEETING', 'resume'); assert.equal(g.adminView(conns).timer.paused, false); near(p - 30_000);
+  for (let i = 0; i < 5; i++) g.timer('ROUND2_MEETING', 'add', -60);
+  assert.equal(left(), 0);
+  // 시간이 끝나도 제출·진행은 그대로 (교사가 넘길 때까지 00:00 유지)
+  g.state.timer.endsAt = Date.now() - 60_000;
+  assert.equal(left(), 0);
+  assert.equal(Object.keys(g.state.submissions[2]).length, 0);
+  assert.equal(g.state.stepId, 'ROUND2_MEETING');
+  g.submit(1, { round: 2, choice: 'honest', reason: '시간이 지나도 제출 가능' });
+  g.timer('ROUND2_MEETING', 'add', 30); near(30_000);
+  g.timer('ROUND2_MEETING', 'reset'); near(120_000);
+  assert.throws(() => g.timer('ROUND1_MEETING', 'add', 30), /이미 다른 단계/);
+  g.testAutoSubmit('random', 2);
+  g.next('ROUND2_MEETING');
+  assert.throws(() => g.timer('ROUND2_RESPONSES', 'add', 30), /기업 회의 중에만/);
+});
+
+test('회의 타이머: 저장(JSON) 후 다시 읽어도 남은 시간 유지 · 뒤로 돌아오면 이어서, 앞으로 다시 들어오면 새로 2분', () => {
+  const g = new GameEngine();
+  g.testAutoJoin();
+  goto(g, 'ROUND3_MEETING');
+  g.timer('ROUND3_MEETING', 'add', -60);
+  const again = new GameEngine(JSON.parse(JSON.stringify(g.state)));
+  assert.ok(Math.abs(again.displayView(conns).timer.leftMs - 60_000) < 300);
+  g.testAutoSubmit('random', 3);
+  g.next('ROUND3_MEETING');
+  g.prev('ROUND3_RESPONSES');
+  assert.ok(Math.abs(g.adminView(conns).timer.leftMs - 60_000) < 300, '뒤로: 이어서');
+  g.prev('ROUND3_MEETING');
+  g.next('ROUND3_SCENE');
+  assert.ok(g.adminView(conns).timer.leftMs > 119_000, '앞으로: 새로 2분');
 });
 
 test('재접속 토큰은 해시로만 저장', () => {

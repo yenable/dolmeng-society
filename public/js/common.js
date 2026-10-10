@@ -262,3 +262,45 @@ export function josa(word, type) {
   })[type] ?? '';
 }
 export const withJosa = (word, type) => `${word}${josa(word, type)}`;
+
+// ── 기업 회의 타이머 (학생·TV·교사 공통) ─────────────────────────────
+//  기준은 서버 상태: 서버가 보낸 남은 시간(leftMs)을 받은 순간부터 이 화면에서만 줄여 보여줌.
+//  새로고침·재접속하면 서버에서 다시 받으므로 세 화면이 같은 시간을 봄. 0이 되어도 아무것도 제출하지 않음.
+export const clockText = (ms) => {
+  const s = Math.ceil(Math.max(0, ms) / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
+
+// 화면에 넣는 자리. 숫자는 meetingTimer() 가 채움
+export const timerHtml = (cls = '', label = '남은 시간') =>
+  `<div class="mtimer ${cls}" data-timer hidden><span class="tm-ic" aria-hidden="true">⏱</span><span class="tm-k">${label}</span><b class="tm-v num">--:--</b><span class="tm-note"></span></div>`;
+
+export function meetingTimer() {
+  let t = null;
+  let at = 0;
+  const left = () => (!t ? null : t.paused ? t.leftMs : Math.max(0, t.leftMs - (performance.now() - at)));
+  function paint() {
+    const ms = left();
+    for (const el of $$('[data-timer]')) {
+      el.hidden = ms == null;
+      if (ms == null) continue;
+      const v = $('.tm-v', el);
+      const text = clockText(ms);
+      if (v.textContent !== text) v.textContent = text;
+      const over = ms <= 0;
+      el.classList.toggle('low', !over && ms <= 30_000);
+      el.classList.toggle('over', over);
+      el.classList.toggle('paused', !!t.paused);
+      $('.tm-note', el).textContent = over ? '시간 종료' : t.paused ? '일시정지' : '';
+    }
+  }
+  setInterval(paint, 250);
+  return {
+    set(timer) {
+      t = timer ?? null;
+      at = performance.now();
+      paint();
+    },
+    paint,
+  };
+}

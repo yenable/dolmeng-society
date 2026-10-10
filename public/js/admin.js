@@ -1,11 +1,12 @@
 // 교사 콘솔 /admin — 모든 진행은 여기서 버튼으로만 (자동 진행 없음)
-import { $, $$, esc, won, signedWon, fmt, connectLive, api, toast, netBanner, storage } from './common.js';
+import { $, $$, esc, won, signedWon, fmt, connectLive, api, toast, netBanner, storage, meetingTimer, timerHtml } from './common.js';
 
 const PIN_KEY = 'slangi.adminPin';
 let pin = storage.get(PIN_KEY) || '';
 let view = null;
 let stream = null;
 let busy = false;
+const clock = meetingTimer(); // 기업 회의 타이머 (서버 상태 기준 — 학생·TV 와 같은 시간)
 
 // ── 로그인 ────────────────────────────────────────────
 async function tryLogin(p) {
@@ -107,6 +108,7 @@ function onState(v) {
   renderSocial(v);
   renderLog(v);
   renderScenarios(v);
+  clock.set(v.timer);
 }
 
 function renderTop(v) {
@@ -141,6 +143,22 @@ function renderNav(v) {
         <span class="muted">힌트 없이 [정답 공개]를 바로 눌러도 됩니다.</span></div>`;
     }
   }
+  if (v.timer) {
+    // 기업 회의 타이머: 세 화면이 같은 시간. 0이 되어도 자동 제출하지 않음 (00:00 으로 멈춤)
+    const dis = busy ? 'disabled' : '';
+    extra += `<div class="timer-box">
+      ${timerHtml('admin-timer', '남은 회의 시간')}
+      <div class="timer-btns">
+        <button class="btn small ghost" data-timer-add="-60" ${dis}>−1분</button>
+        <button class="btn small ghost" data-timer-add="-30" ${dis}>−30초</button>
+        <button class="btn small ghost" data-timer-add="30" ${dis}>+30초</button>
+        <button class="btn small ghost" data-timer-add="60" ${dis}>+1분</button>
+        <i></i>
+        <button class="btn small ghost" data-timer-op="${v.timer.paused ? 'resume' : 'pause'}" ${dis}>${v.timer.paused ? '▶ 다시 시작' : '⏸ 일시정지'}</button>
+        <button class="btn small ghost" data-timer-op="reset" ${dis}>2분으로</button>
+      </div>
+    </div>`;
+  }
   if (computed && ['meeting', 'responses'].includes(st.kind)) extra += '<div class="info">이 라운드는 이미 결과가 계산되었습니다. 다시 계산되지 않습니다.</div>';
   if (st.kind === 'meeting' || st.kind === 'reflection') {
     const n = st.kind === 'reflection' ? v.reflections.filter((r) => r.submitted).length : Object.values(v.submissions[st.round]).filter(Boolean).length;
@@ -160,6 +178,9 @@ function renderNav(v) {
   $('#next').addEventListener('click', goNext);
   $('#prev').addEventListener('click', goPrev);
   $('#hint')?.addEventListener('click', toggleHint);
+  $$('[data-timer-add]', $('#nav')).forEach((b) => b.addEventListener('click', () => act('timer', { from: st.id, op: 'add', sec: Number(b.dataset.timerAdd) })));
+  $$('[data-timer-op]', $('#nav')).forEach((b) => b.addEventListener('click', () => act('timer', { from: st.id, op: b.dataset.timerOp })));
+  clock.paint();
 }
 
 function connCell(t) {
