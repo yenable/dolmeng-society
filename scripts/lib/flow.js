@@ -157,19 +157,20 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
   assert.equal(tv.score.categories.length, 0);
   assert.equal(tv.score.total, 3);
   const path = [tv.score.start];
-  for (let i = 0; i <= tv.score.total; i++) {
+  for (let i = 0; i <= tv.score.total + 1; i++) {
     const r = await c.admin('next', { from: 'SOCIAL_SCORE_REVEAL', fromReveal: i, presenter: true });
     assert.equal(r.status, 200);
     tv = await c.tv();
-    if (!tv.score.done) path.push(tv.score.categories.at(-1).after);
+    if (tv.score.culprits) assert.equal(tv.score.culprits.length, 5);
+    else if (!tv.score.done) path.push(tv.score.categories.at(-1).after);
   }
   assert.deepEqual(path, [100, 60, 20, -10]); // 소비자(과장 2) -40 · 환경(일반 2, 절감 1) -40 · 공정(4곳) -30
   assert.equal(tv.score.final, -10);
   assert.equal(tv.score.done, true);
   assert.match(tv.score.questions.main, /사회점수는 낮아졌을까요/);
-  log('  ✓ 뉴스(제목→내용 자동, 기사마다 한 클릭) · 사회면 · 사회점수 범주별 공개 → 최종(음수) + 발문');
+  log('  ✓ 뉴스(제목→내용 자동, 기사마다 한 클릭) · 사회면 · 사회점수 범주별 공개 → 감점 기업 순위 → 최종(음수) + 발문');
 
-  await c.admin('next', { from: 'SOCIAL_SCORE_REVEAL', fromReveal: tv.score.total + 1 });
+  await c.admin('next', { from: 'SOCIAL_SCORE_REVEAL', fromReveal: tv.score.total + 2 });
   // 사회적 책임 도입 발문 → 개념 정리 → 자유 + 책임 정리 → 정리 활동
   for (const id of ['CSR_ASK', 'CSR_CONCEPT', 'CSR_SUMMARY']) {
     tv = await c.tv();
@@ -188,21 +189,13 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
   assert.equal(tv.reflections.filter((x) => x.submitted).length, 5);
   log('  ✓ 정리 활동 제출 · TV 공개');
 
-  // 마지막: 배운 내용 한 문장 정리 (빈칸 2개) → TV 에 모둠별 문장 공개
+  // 마지막: 배운 내용 한 문장 정리 — TV 에 빈칸 문장 틀만 (학생 입력 없음)
   await c.admin('next', { from: 'REFLECTION_RESPONSES', presenter: true });
-  assert.equal((await c.tv()).step.id, 'SUMMARY');
-  assert.equal((await c.post('/api/play/summary', { token: tokens[1], blanks: ['가격을 정', ''] })).status, 400);
-  const s1 = await c.post('/api/play/summary', { token: tokens[1], blanks: ['가격을 스스로 정', '환경을 보호'] });
-  assert.equal(s1.status, 200, JSON.stringify(s1.body));
-  assert.deepEqual(s1.body.view.summary.mine.blanks, ['가격을 스스로 정', '환경을 보호']);
-  assert.equal((await c.admin('next', { from: 'SUMMARY', presenter: true })).status, 423);
-  await c.admin('testAutoSummary');
-  await c.admin('next', { from: 'SUMMARY', presenter: true });
   tv = await c.tv();
-  assert.equal(tv.step.id, 'SUMMARY_RESPONSES');
-  assert.equal(tv.summaries.filter((x) => x.submitted).length, 5);
-  assert.deepEqual(tv.summaries.find((x) => x.teamId === 1).blanks, ['가격을 스스로 정', '환경을 보호']);
-  log('  ✓ 배운 내용 한 문장 정리 제출 · TV 공개');
+  assert.equal(tv.step.id, 'SUMMARY');
+  assert.equal(tv.summary.title, '배운 내용 정리하기');
+  assert.equal((await c.post('/api/play/summary', { token: tokens[1], blanks: ['a', 'b'] })).status, 404);
+  log('  ✓ 마지막 정리: TV 에 빈칸 문장 틀 표시');
 
   // 연결 해제 → 그 학생만 토큰 무효
   await c.admin('release', { teamId: 5 });

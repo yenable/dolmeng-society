@@ -378,8 +378,23 @@ try {
   await expectScore('ArrowRight', 3, 3, '−130');
   ok('사회점수: 100 → 소비자 보호(−100) → 환경(−100) → 공정 경쟁(−30) 범주별 한 번씩, ← PageUp 으로 되돌리기');
 
-  const rect0 = await tv.$eval('#snum', (e) => e.getBoundingClientRect().toJSON());
+  // 범주별 감점 카드 → 사회점수를 떨어뜨린 기업 순위 (점수는 그대로)
   await press(tv, 'ArrowRight', 'SOCIAL_SCORE_REVEAL:4');
+  await tv.waitForSelector('.sculp-row.top', { timeout: 6000 });
+  assert.equal(await tv.$('.scat'), null, '감점 카드가 순위표로 바뀜');
+  assert.equal(await snum(), '−130');
+  await until(async () => (await tv.$$eval('.sculp-row', (els) => els.filter((e) => getComputedStyle(e).opacity === '1').length)) === 5, 6000, '순위 5줄 등장');
+  const culp = await tv.$$eval('.sculp-row', (els) => els.map((e) => [...e.querySelectorAll('.rk, .nm, .parts em, .pt')].map((x) => x.textContent.trim()).join(' ')));
+  assert.match(culp[0], /^1위 \S+ 소비자 보호 −20 환경 −20 공정 경쟁 −6 −46$/, culp[0]);
+  assert.equal(culp.length, 5);
+  await press(tv, 'ArrowLeft', 'SOCIAL_SCORE_REVEAL:3');
+  await tv.waitForSelector('.score:not(.is-final) .scat');
+  await press(tv, 'ArrowRight', 'SOCIAL_SCORE_REVEAL:4');
+  await tv.waitForSelector('.sculp-row');
+  ok('사회점수: 감점 카드 → 사회점수를 떨어뜨린 기업 순위(5위→1위 차례로) · ← 로 되돌리기');
+
+  const rect0 = await tv.$eval('#snum', (e) => e.getBoundingClientRect().toJSON());
+  await press(tv, 'ArrowRight', 'SOCIAL_SCORE_REVEAL:5');
   await tv.waitForSelector('.score.is-final');
   await sleep(150);
   const mid = await tv.$eval('#snum', (e) => ({ tf: e.style.transform, r: e.getBoundingClientRect().toJSON() }));
@@ -397,12 +412,12 @@ try {
   assert.match(await tv.$eval('.score-q', (e) => e.textContent), /왜 돌멩민국의 사회점수는 낮아졌을까요[\s\S]*누구에게 어떤 영향을/);
   assert.equal(await tv.evaluate(() => document.body.classList.contains('dark')), true);
   await sleep(2500);
-  assert.equal(await step(), 'SOCIAL_SCORE_REVEAL:4', '최종 발문에서 자동으로 넘어가지 않음');
+  assert.equal(await step(), 'SOCIAL_SCORE_REVEAL:5', '최종 발문에서 자동으로 넘어가지 않음');
   ok('최종 사회점수: 왼쪽 점수가 가운데로 이동(FLIP)·확대·빨간색 → 발문 fade in → 정지');
 
-  await press(tv, 'ArrowLeft', 'SOCIAL_SCORE_REVEAL:3');
-  await tv.waitForSelector('.score:not(.is-final) .scat');
-  await press(tv, 'ArrowRight', 'SOCIAL_SCORE_REVEAL:4');
+  await press(tv, 'ArrowLeft', 'SOCIAL_SCORE_REVEAL:4');
+  await tv.waitForSelector('.score:not(.is-final) .sculp-row');
+  await press(tv, 'ArrowRight', 'SOCIAL_SCORE_REVEAL:5');
   // 최종 발문 → 사회적 책임 도입 발문 → 개념 정리 → 자유 + 책임 → 정리 활동
   await press(tv, 'ArrowRight', 'CSR_ASK:-');
   await tv.waitForSelector('.cz-s-csrAsk');

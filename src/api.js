@@ -100,8 +100,6 @@ export function createApi(store, { env = process.env } = {}) {
     testAutoSubmit: (e, b) => e.testAutoSubmit(b.scenario),
     testAutoComplete: (e, b) => e.testAutoComplete(b.scenario),
     testAutoReflect: (e) => e.testAutoReflect(),
-    testAutoSummary: (e) => e.testAutoSummary(),
-    summarizeFor: (e, b) => e.summarize(b.teamId, b, { byAdmin: true }),
   };
 
   // ── 라우팅 ─────────────────────────────────────────────────────────
@@ -136,10 +134,9 @@ export function createApi(store, { env = process.env } = {}) {
       await mutate((e) => e.leave(teamFromToken(e, body.token)));
       return { ok: true };
     }
-    if (path === '/api/play/submit' || path === '/api/play/reflect' || path === '/api/play/summary') {
+    if (path === '/api/play/submit' || path === '/api/play/reflect') {
       const { engine, result } = await mutate((e) => {
         const id = teamFromToken(e, body.token);
-        if (path.endsWith('summary')) return e.summarize(id, body);
         return path.endsWith('submit') ? e.submit(id, body) : e.reflect(id, body);
       });
       return { ok: true, already: !!result?.already, view: playView(engine, body.token) };

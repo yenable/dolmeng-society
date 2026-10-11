@@ -182,15 +182,15 @@ test('사회점수 예시: 과장 3 · 일반 1 · 절감 2 · 담합 4 → 100 
   assert.equal(cats[2].groups[0].companies.length, 4);
   // 기업별 원본은 덮어쓰지 않음
   assert.equal(g.state.socialEvents.filter((e) => e.category === 'consumer').length, 3);
-  // TV 진행: 시작 → 소비자 → 환경 → 공정 → 최종 발문 → 정리
+  // TV 진행: 시작 → 소비자 → 환경 → 공정 → 감점 기업 순위 → 최종 발문 → 정리
   const seen = [];
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 7; i++) {
     const v = g.displayView(conns);
     if (v.step.kind !== 'score') break;
-    seen.push(v.score.done ? `final:${v.score.final}` : v.score.categories.length ? v.score.categories.at(-1).after : v.score.start);
+    seen.push(v.score.done ? `final:${v.score.final}` : v.score.culprits ? 'culprits' : v.score.categories.length ? v.score.categories.at(-1).after : v.score.start);
     g.next('SOCIAL_SCORE_REVEAL', g.state.revealIndex);
   }
-  assert.deepEqual(seen, [100, 40, -10, -40, 'final:-40']);
+  assert.deepEqual(seen, [100, 40, -10, -40, 'culprits', 'final:-40']);
   assert.equal(g.state.stepId, 'CSR_ASK'); // 최종 발문 → 사회적 책임 도입 발문
 });
 
@@ -241,18 +241,29 @@ test('사회점수 공개는 범주별로 한 단계씩 · 감점 0 범주는 �
   assert.equal(g.displayView(conns).score.done, false);
   assert.equal(g.displayView(conns).score.questions, null);
   assert.throws(() => g.next('SOCIAL_SCORE_REVEAL', n - 1), (e) => e.status === 409); // 늦게 온 같은 클릭은 무시
-  g.next('SOCIAL_SCORE_REVEAL', n); // 최종 사회점수 + 발문
+  g.next('SOCIAL_SCORE_REVEAL', n); // 사회점수를 떨어뜨린 기업 순위
   assert.equal(g.state.revealIndex, n + 1);
+  const cv = g.displayView(conns).score;
+  assert.equal(cv.done, false);
+  assert.equal(cv.categories.length, n, '왼쪽 점수는 마지막 범주 결과 그대로');
+  assert.equal(cv.culprits.length, 5);
+  assert.deepEqual(cv.culprits.map((r) => r.total), [...cv.culprits.map((r) => r.total)].sort((a, b) => a - b), '감점이 큰 기업부터');
+  const sum = cv.culprits.reduce((a, r) => a + r.total, 0);
+  assert.ok(Math.abs(sum - (g.socialScore() - 100)) < 1, '기업별 감점 합 = 전체 감점');
+  assert.equal(g.adminView().scorePhases.find((p) => p.current).key, 'culprits');
+  g.next('SOCIAL_SCORE_REVEAL', n + 1); // 최종 사회점수 + 발문
+  assert.equal(g.state.revealIndex, n + 2);
   const dv = g.displayView(conns).score;
+  assert.equal(dv.culprits, null);
   assert.equal(dv.done, true);
   assert.equal(dv.final, g.socialScore());
   assert.match(dv.questions.main, /왜 돌멩민국의 사회점수는 낮아졌을까요/);
   assert.equal(g.adminView().scorePhases.find((p) => p.current).key, 'final');
   assert.equal(g.adminView().scorePhases.find((p) => p.key === 'consumer').reveal, 1);
-  g.next('SOCIAL_SCORE_REVEAL', n + 1);
+  g.next('SOCIAL_SCORE_REVEAL', n + 2);
   assert.equal(g.state.stepId, 'CSR_ASK');
   g.prev('CSR_ASK');
-  assert.equal(g.state.revealIndex, n + 1);
+  assert.equal(g.state.revealIndex, n + 2);
 });
 
 test('학생·TV 화면 데이터에 숨은 값이 없음', () => {
@@ -351,34 +362,17 @@ test('테스트 자동 접속 기업도 모둠 번호를 받고, 실제 모둠�
   assert.equal(g.state.teams[vid].virtual, false);
 });
 
-test('마지막: 배운 내용 한 문장 정리 (빈칸 2개) · 정리 단계에서만 · 한 번만 · 마지막 단계', () => {
+test('마지막: 배운 내용 한 문장 정리 — TV 에 빈칸 문장 틀만 · 학생 입력 없음 · 마지막 단계', () => {
   const g = new GameEngine();
   g.testAutoJoin();
-  assert.equal(STEPS[STEPS.length - 1].id, 'SUMMARY_RESPONSES');
-  assert.throws(() => g.summarize(1, { blanks: ['가격을 정', '환경을 보호'] }), /지금은 제출할 수 없습니다/);
+  assert.equal(STEPS[STEPS.length - 1].id, 'SUMMARY');
   goto(g, 'SUMMARY');
-  const v = g.teamView(1, conns);
-  assert.equal(v.summary.canSubmit, true);
-  assert.deepEqual(v.summary.sentence.filter((x) => typeof x !== 'string'), [{ blank: 0 }, { blank: 1 }]);
-  assert.throws(() => g.summarize(1, { blanks: ['가격을 정', '  '] }), /빈칸 두 곳/);
-  g.summarize(1, { blanks: ['가격을 스스로 정하다', '환경을 보호할'] }); // 끝의 '하다/할' 은 떼어 문장에 맞춤
-  assert.deepEqual(g.state.summaries[1].blanks, ['가격을 스스로 정', '환경을 보호']);
-  assert.equal(g.summarize(1, { blanks: ['a', 'b'] }).already, true);
-  assert.equal(g.teamView(1, conns).summary.canSubmit, false);
-  assert.equal(g.displayView(conns).submittedTeams.length, 1);
-  assert.throws(() => g.next('SUMMARY', null, { safe: true }), (e) => e.status === 423);
-  assert.match(g.adminView(conns).nextAction.warning, /정리 문장을 제출하지 않은 기업/);
-  g.clearSubmission(1, 'summary');
-  assert.equal(g.teamView(1, conns).summary.canSubmit, true);
-  g.testAutoSummary();
-  g.next('SUMMARY', null, { safe: true });
   const tv = g.displayView(conns);
-  assert.equal(tv.step.id, 'SUMMARY_RESPONSES');
-  assert.equal(tv.summaries.filter((x) => x.submitted).length, 5);
-  // 정리 문장 기능 전에 저장된 세션도 그대로 열림
-  const old = JSON.parse(JSON.stringify(g.state));
-  delete old.summaries;
-  assert.deepEqual(new GameEngine(old).state.summaries, {});
+  assert.deepEqual(tv.summary.sentence.filter((x) => typeof x !== 'string'), [{ blank: 0 }, { blank: 1 }]);
+  assert.equal(tv.summary.sentence.filter((x) => typeof x === 'string').join('()'), '기업은 ()할 자유가 있지만, ()할 책임도 있다.');
+  const me = g.teamView(1, conns);
+  assert.ok(!me.summary && !me.canSubmit && !me.reflection, '학생 화면은 TV 를 보세요');
+  assert.equal(g.adminView(conns).nextAction, null);
 });
 
 test('이미 선택된 기업은 다른 노트북이 가져갈 수 없음', () => {
@@ -422,7 +416,7 @@ test('프레젠터: 사회적 영향 이후는 자유롭게 앞뒤', () => {
   assert.equal(g.state.stepId, 'REFLECTION');
   assert.ok(seen.includes('NEWS_FAIRNESS:0') && seen.includes('SOCIAL_PAPER:0') && seen.includes('BLACKOUT:0'));
   assert.ok(!seen.includes('NEWS_CONSUMER:1')); // 뉴스 한 기사 = 한 번 클릭
-  assert.deepEqual(seen.filter((x) => x.startsWith('SOCIAL_SCORE')), ['SOCIAL_SCORE_REVEAL:0', 'SOCIAL_SCORE_REVEAL:1', 'SOCIAL_SCORE_REVEAL:2', 'SOCIAL_SCORE_REVEAL:3', 'SOCIAL_SCORE_REVEAL:4']);
+  assert.deepEqual(seen.filter((x) => x.startsWith('SOCIAL_SCORE')), [0, 1, 2, 3, 4, 5].map((i) => `SOCIAL_SCORE_REVEAL:${i}`));
   assert.throws(() => g.next('REFLECTION', null, { safe: true }), (e) => e.status === 423);
   g.testAutoReflect(); // 정리 활동을 모두 낸 뒤에는 자유롭게 이동
   for (let i = seen.length - 1; i >= 1; i--) {
@@ -550,7 +544,7 @@ test('활동 1 → 2: 최종 이윤 순위 → 기업의 자유 → 활동 2 발
   assert.deepEqual(seen, [
     'FINAL_PROFIT:0', 'ACT1_FREEDOM:0', 'ACT2_ASK:0', 'BLACKOUT:0',
     'NEWS_CONSUMER:0', 'NEWS_ENVIRONMENT:0', 'NEWS_FAIRNESS:0', 'SOCIAL_PAPER:0',
-    'SOCIAL_SCORE_REVEAL:0', 'SOCIAL_SCORE_REVEAL:1', 'SOCIAL_SCORE_REVEAL:2', 'SOCIAL_SCORE_REVEAL:3', 'SOCIAL_SCORE_REVEAL:4',
+    'SOCIAL_SCORE_REVEAL:0', 'SOCIAL_SCORE_REVEAL:1', 'SOCIAL_SCORE_REVEAL:2', 'SOCIAL_SCORE_REVEAL:3', 'SOCIAL_SCORE_REVEAL:4', 'SOCIAL_SCORE_REVEAL:5',
     'CSR_ASK:0', 'CSR_CONCEPT:0', 'CSR_SUMMARY:0', 'REFLECTION:0',
   ]);
   for (let i = seen.length - 2; i >= 0; i--) {

@@ -63,8 +63,8 @@ export const STEPS = (() => {
     concept('CSR_SUMMARY', 'freedomCsr', '사회적 책임', '기업의 자유 + 사회적 책임', '기업의 자유 + 사회적 책임 정리'),
     { id: 'REFLECTION', kind: 'reflection', label: '정리 · 우리 기업의 선택 다시 생각하기', enterLabel: '우리 기업의 선택 다시 생각하기 (학생 화면 열기)' },
     { id: 'REFLECTION_RESPONSES', kind: 'reflectionResponses', label: '정리 · 바꾼 선택과 이유 공개', enterLabel: '바꾼 선택과 이유 공개' },
-    { id: 'SUMMARY', kind: 'summary', label: '정리 · 배운 내용 한 문장으로 정리하기', enterLabel: '배운 내용 정리하기 (학생 화면 열기)' },
-    { id: 'SUMMARY_RESPONSES', kind: 'summaryResponses', label: '정리 · 모둠별 정리 문장 공개', enterLabel: '정리 문장 공개' },
+    // 마지막: 배운 내용 한 문장 정리 — TV 에 문장 틀을 띄우고 말로 정리 (학생 입력 없음)
+    { id: 'SUMMARY', kind: 'summary', label: '정리 · 배운 내용 한 문장으로 정리하기', enterLabel: '배운 내용 정리하기' },
   );
   return s.map((x, index) => ({ ...x, index }));
 })();
@@ -145,7 +145,6 @@ export function createState(keepTeams = null) {
     standings: null,
     socialEvents: [],
     reflections: {},
-    summaries: {}, // 배운 내용 한 문장 정리 { 기업 번호: { blanks: [자유, 책임], submittedAt, byAdmin } }
     log: [],
   };
 }
@@ -172,7 +171,6 @@ export const SCENARIO_LIST = Object.entries(SCENARIOS).map(([key, v]) => ({ key,
 export class GameEngine {
   constructor(state) {
     this.state = state && state.version === STATE_VERSION && state.teams ? state : createState();
-    this.state.summaries ??= {}; // 정리 문장 기능 이전에 만든 세션
   }
 
   get step() {
@@ -288,11 +286,6 @@ export class GameEngine {
       this.log(`${companyName(id)} 정리 활동 제출 초기화`);
       return;
     }
-    if (round === 'summary') {
-      delete s.summaries[id];
-      this.log(`${companyName(id)} 정리 문장 제출 초기화`);
-      return;
-    }
     const r = Number(round);
     if (!ROUNDS[r]) throw new GameError('잘못된 라운드');
     if (s.rounds[r]?.computed) throw new GameError('이미 결과가 계산된 라운드는 초기화할 수 없습니다.');
@@ -325,22 +318,6 @@ export class GameEngine {
     return { ok: true };
   }
 
-  // 배운 내용 한 문장 정리: '기업은 (blanks[0])할 자유가 있지만, (blanks[1])할 책임도 있다.'
-  summarize(teamId, body, { byAdmin = false } = {}) {
-    const s = this.state;
-    const id = Number(teamId);
-    if (!s.teams[id]) throw new GameError('잘못된 요청입니다.');
-    if (!byAdmin && this.step.kind !== 'summary') throw new GameError('지금은 제출할 수 없습니다. 선생님의 안내를 기다려 주세요.');
-    if (s.summaries[id] && !byAdmin) return { already: true };
-    const raw = Array.isArray(body.blanks) ? body.blanks : [];
-    // 학생이 '~하다/~할'까지 써도 문장이 자연스럽게 이어지도록 끝의 '하다·할' 은 떼어 냄
-    const blanks = [0, 1].map((i) => cleanText(raw[i]).slice(0, SUMMARY.maxLength).replace(/\s*(하다|할)$/, ''));
-    if (!byAdmin && blanks.some((b) => !b)) throw new GameError('빈칸 두 곳을 모두 채워 주세요.');
-    s.summaries[id] = { blanks: blanks.map((b) => b || '(선생님이 대신 입력)'), submittedAt: Date.now(), byAdmin };
-    this.log(`${companyName(id)} 정리 문장 ${byAdmin ? '대신 ' : ''}제출`);
-    return { ok: true };
-  }
-
   // ── 진행 (교사만) ────────────────────────────────────────────────
   isAvailable(st) {
     if (st.kind === 'news') return !!this.news()[st.news];
@@ -359,7 +336,10 @@ export class GameEngine {
   //   (뉴스는 제목 타이핑 → 기사 내용이 TV에서 자동으로 이어지므로 나누지 않음)
   //   도입 퀴즈: 0 = 문제(빈칸 퀴즈는 초성 힌트를 따로 켜고 끌 수 있음) → 1 = 정답 공개
   revealTotal(st = this.step) {
-    if (st.kind === 'score') return this.scoreCategories().length + 1;
+    if (st.kind === 'score') {
+      const n = this.scoreCategories().length;
+      return n ? n + 2 : 1; // 범주별 감점 → 감점 기업 순위 → 최종 (감점이 없으면 바로 최종)
+    }
     if (st.quiz) return 1;
     return 0;
   }
@@ -410,7 +390,6 @@ export class GameEngine {
     const open = st.round && !s.rounds[st.round]?.computed && TEAM_IDS.some((id) => !s.submissions[st.round][id]);
     if (open && (st.kind === 'meeting' || (st.kind === 'responses' && dir > 0))) return '아직 결정 중인 기업이 있습니다.';
     if (st.kind === 'reflection' && TEAM_IDS.some((id) => !s.reflections[id])) return '아직 정리 활동을 쓰고 있는 기업이 있습니다.';
-    if (st.kind === 'summary' && dir > 0 && TEAM_IDS.some((id) => !s.summaries[id])) return '아직 정리 문장을 쓰고 있는 기업이 있습니다.';
     return null;
   }
 
@@ -726,6 +705,21 @@ export class GameEngine {
     return cats;
   }
 
+  // 사회점수를 떨어뜨린 기업 순위: 기업별 감점 합계(담합 감점은 참여 기업 수로 나눈 몫)와 범주별 내역. 감점이 큰 기업이 1위
+  scoreCulprits() {
+    const rows = TEAM_IDS.map((id) => {
+      const by = {};
+      for (const e of this.state.socialEvents) {
+        if (e.teamIds.includes(id)) by[e.category] = (by[e.category] ?? 0) + (e.teamIds.length === 1 ? e.delta : e.perTeam);
+      }
+      const total = Object.values(by).reduce((a, b) => a + b, 0);
+      const parts = CATEGORY_ORDER.filter((c) => by[c]).map((c) => ({ category: c, label: CATEGORY_LABELS[c], delta: by[c] }));
+      return { teamId: id, name: companyName(id), color: colorOf(id), total, parts };
+    });
+    rows.sort((a, b) => a.total - b.total || a.teamId - b.teamId);
+    return rows.map((r) => ({ ...r, rank: rows.findIndex((x) => x.total === r.total) + 1 }));
+  }
+
   // 사회점수 공개가 어디까지 왔는지 (교사 콘솔 표시용)
   scorePhases() {
     const cats = this.scoreCategories();
@@ -735,7 +729,8 @@ export class GameEngine {
       const at = cats.findIndex((c) => c.category === category);
       list.push({ key: category, label: `${CATEGORY_LABELS[category]} 공개`, reveal: at >= 0 ? at + 1 : null, skipped: at < 0 });
     }
-    list.push({ key: 'final', label: '최종 발문', reveal: cats.length + 1 });
+    if (cats.length) list.push({ key: 'culprits', label: '감점 기업 순위', reveal: cats.length + 1 });
+    list.push({ key: 'final', label: '최종 발문', reveal: cats.length ? cats.length + 2 : 1 });
     return list.map((p) => ({ ...p, current: p.reveal === idx, done: p.reveal != null && p.reveal < idx }));
   }
 
@@ -775,7 +770,6 @@ export class GameEngine {
     const st = this.step;
     if (st.round) return Object.keys(this.state.submissions[st.round]).length;
     if (st.kind === 'reflection' || st.kind === 'reflectionResponses') return Object.keys(this.state.reflections).length;
-    if (st.kind === 'summary' || st.kind === 'summaryResponses') return Object.keys(this.state.summaries).length;
     return 0;
   }
 
@@ -821,13 +815,6 @@ export class GameEngine {
     return { count: col.count, total: TOTAL, members: col.members.map((id) => ({ id, name: companyName(id), color: colorOf(id) })) };
   }
 
-  summariesPublic() {
-    return COMPANIES.map((c) => {
-      const f = this.state.summaries[c.id];
-      return { teamId: c.id, name: c.name, color: c.color, submitted: !!f, blanks: f ? f.blanks : null, byAdmin: !!f?.byAdmin };
-    });
-  }
-
   reflectionsPublic() {
     return COMPANIES.map((c) => {
       const f = this.state.reflections[c.id];
@@ -853,10 +840,7 @@ export class GameEngine {
     if (st.kind === 'meeting') v.submittedTeams = Object.keys(s.submissions[st.round]).map(Number);
     v.timer = this.timerPublic();
     if (st.kind === 'reflection') v.submittedTeams = Object.keys(s.reflections).map(Number);
-    if (st.kind === 'summary') {
-      v.submittedTeams = Object.keys(s.summaries).map(Number);
-      v.summary = SUMMARY;
-    }
+    if (st.kind === 'summary') v.summary = SUMMARY;
     if (st.round) v.roundInfo = ROUNDS[st.round];
     if (['responses', 'result', 'rank'].includes(st.kind)) v.responses = this.responsesPublic(st.round);
     if (['result', 'rank'].includes(st.kind) && s.rounds[st.round]?.computed) {
@@ -873,22 +857,20 @@ export class GameEngine {
     if (st.kind === 'paper') v.headlines = this.headlines();
     if (st.kind === 'score') {
       const cats = this.scoreCategories();
-      const done = s.revealIndex > cats.length;
+      const done = s.revealIndex >= this.revealTotal();
+      const culprits = cats.length > 0 && s.revealIndex === cats.length + 1;
       v.score = {
         start: C.SOCIAL_SCORE_START,
         categories: cats.slice(0, Math.min(s.revealIndex, cats.length)),
         total: cats.length,
         revealIndex: s.revealIndex,
         final: done ? this.socialScore() : null,
+        culprits: culprits ? this.scoreCulprits() : null,
         done,
         questions: done ? SCORE_QUESTIONS : null,
       };
     }
     if (st.kind === 'reflectionResponses') v.reflections = this.reflectionsPublic();
-    if (st.kind === 'summaryResponses') {
-      v.summary = SUMMARY;
-      v.summaries = this.summariesPublic();
-    }
     if (st.kind === 'lesson') v.lesson = this.lessonPublic(st);
     if (st.kind === 'concept') v.concept = CONCEPT[st.slide];
     if (st.slide === 'act2Ask') v.standings = this.standingsPublic(4); // 활동 2 발문 왼쪽: 실제 최종 이윤·순위
@@ -961,9 +943,6 @@ export class GameEngine {
         canReflect: st.kind === 'reflection' && !s.reflections[teamId],
       };
     }
-    if (['summary', 'summaryResponses'].includes(st.kind)) {
-      v.summary = { ...SUMMARY, mine: s.summaries[teamId] ?? null, canSubmit: st.kind === 'summary' && !s.summaries[teamId] };
-    }
     return v;
   }
 
@@ -976,7 +955,8 @@ export class GameEngine {
         const c = cats[s.revealIndex];
         return { label: `${c.label} 감점 공개 (${s.revealIndex + 1} / ${cats.length})`, toLabel: `사회점수 · ${c.label}`, warning: null };
       }
-      if (s.revealIndex === cats.length) return { label: '최종 사회점수 · 발문 보여주기', toLabel: '최종 사회점수 · 발문', warning: null };
+      if (s.revealIndex === cats.length && cats.length) return { label: '사회점수를 떨어뜨린 기업 순위 보여주기', toLabel: '사회점수 · 감점 기업 순위', warning: null };
+      if (s.revealIndex < this.revealTotal()) return { label: '최종 사회점수 · 발문 보여주기', toLabel: '최종 사회점수 · 발문', warning: null };
     }
     if (st.quiz && s.revealIndex < 1) return { label: '정답 공개', toLabel: `${st.label.replace('도입 · ', '')} · 정답 공개`, warning: null };
     const nxt = this.neighborStep(+1);
@@ -995,10 +975,6 @@ export class GameEngine {
     if (st.kind === 'reflection') {
       const missing = TEAM_IDS.filter((id) => !s.reflections[id]).map(companyName);
       if (missing.length) warning = `아직 제출하지 않은 기업: ${missing.join(', ')}`;
-    }
-    if (st.kind === 'summary') {
-      const missing = TEAM_IDS.filter((id) => !s.summaries[id]).map(companyName);
-      if (missing.length) warning = `아직 정리 문장을 제출하지 않은 기업: ${missing.join(', ')}`;
     }
     return { label: nxt.enterLabel ?? nxt.label, toLabel: nxt.label, toId: nxt.id, warning, assign };
   }
@@ -1047,8 +1023,6 @@ export class GameEngine {
       },
       news: this.news(),
       reflections: this.reflectionsPublic(),
-      summaries: this.summariesPublic(),
-      summary: SUMMARY,
       scenarios: SCENARIO_LIST,
       config: C,
       log: s.log.slice(0, 30),
@@ -1100,12 +1074,6 @@ export class GameEngine {
     }
     this.enter('FINAL_PROFIT', +1);
     this.log(`테스트: '${SCENARIOS[scenarioKey]?.label ?? scenarioKey}' 시나리오로 4라운드 자동 완료`);
-  }
-
-  testAutoSummary() {
-    for (const id of TEAM_IDS) {
-      if (!this.state.summaries[id]) this.summarize(id, { blanks: pick(SAMPLE_REASONS.summary) }, { byAdmin: true });
-    }
   }
 
   testAutoReflect() {

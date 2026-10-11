@@ -76,7 +76,7 @@ function onState(v) {
   // 화면을 다시 그릴지 결정하는 키 (접속·제출 수 같은 작은 변화는 다시 그리지 않고 갱신만)
   const key = JSON.stringify({
     ...v, rev: 0, serverTime: 0,
-    submittedCount: ['meeting', 'reflection', 'summary'].includes(k) ? 0 : v.submittedCount,
+    submittedCount: ['meeting', 'reflection'].includes(k) ? 0 : v.submittedCount,
     submittedTeams: 0,
     companies: 0,
     timer: 0, // 타이머는 다시 그리지 않고 숫자만 갱신
@@ -598,6 +598,10 @@ const RENDER = {
   score(v, prev) {
     const sc = v.score;
     const stepFwd = sameStep(v, prev) && prev.score && prev.score.revealIndex === sc.revealIndex - 1;
+    if (sc.culprits && stepFwd && $('.score-cats', stage) && !$('.score.is-final', stage)) {
+      scoreToCulprits(sc);
+      return;
+    }
     if (sc.done && stepFwd && $('.score', stage) && !$('.score.is-final', stage)) {
       scoreToFinal(sc);
       return;
@@ -632,32 +636,15 @@ const RENDER = {
     fitReasons();
   },
 
-  // 마지막: 배운 내용 한 문장으로 정리 — 문장 틀을 크게 보여주고 모둠 제출 현황
+  // 마지막: 배운 내용 한 문장으로 정리 — 빈칸 문장 틀만 크게 (학생은 말로 정리, 입력 없음)
   summary(v) {
     const sm = v.summary;
     stage.innerHTML = `${topbar(v, '정리')}
       <div class="center sum-wrap">
         <div class="round-label">○ ${esc(sm.title)}</div>
         <p class="sum-ask">${esc(sm.ask)}</p>
-        <p class="sum-frame">${summaryHtml(sm, () => '<span class="sum-blank"></span>')}</p>
-        <div class="meeting-count"><b id="cnt">${v.submittedCount}</b> / ${v.totalTeams} 기업 제출 완료</div>
-        <div class="company-row" id="companies"></div>
+        <p class="sum-frame">${summaryHtml(sm, () => '<span class="sum-blank"></span>').replace(', ', ',<br>')}</p>
       </div>`;
-  },
-
-  // 모둠별로 완성한 문장 공개 (채운 말은 기업 색으로 강조)
-  summaryResponses(v) {
-    const sm = v.summary;
-    stage.innerHTML = `${topbar(v, '정리')}
-      <div class="table-title">${esc(sm.title)} <small>${esc(sm.ask)}</small></div>
-      <div class="sum-list">
-        ${v.summaries.map((r, i) => `
-          <div class="sum-row ${r.submitted ? '' : 'missing'}" style="--c:${r.color}; animation-delay:${i * 0.15}s">
-            <div class="who">${esc(r.name)}</div>
-            <div class="txt"><span>${r.submitted ? summaryHtml(sm, (b) => `<b>${esc(r.blanks[b])}</b>`) : '미제출'}</span></div>
-          </div>`).join('')}
-      </div>`;
-    fitReasons();
   },
 };
 
@@ -723,7 +710,7 @@ function renderScore(v, sc, newest) {
         <div class="score-num num ${cur < 0 ? 'neg' : ''} ${sc.done && !noLoss ? 'red' : ''}" id="snum">${scoreText(newest ? newest.before : cur)}</div>
       </div>
       <div class="score-cats">
-        ${cats.length ? cats.map((c, i) => scoreCard(c, newest && i === cats.length - 1)).join('') : '<div class="score-empty">기업이 이윤만을 쫓는 동안<br>우리 사회는…</div>'}
+        ${sc.culprits ? culpritBoard(sc.culprits, false) : cats.length ? cats.map((c, i) => scoreCard(c, newest && i === cats.length - 1)).join('') : '<div class="score-empty">기업이 이윤만을 쫓는 동안<br>우리 사회는…</div>'}
       </div>
       ${scoreQuestions(sc)}
     </div>`;
@@ -744,6 +731,32 @@ function renderScore(v, sc, newest) {
       });
     });
   }
+}
+
+// 감점 기업 순위: 범주 카드 대신 '사회점수를 떨어뜨린 기업' 순위표 (감점이 큰 기업이 1위)
+function culpritBoard(rows, animate) {
+  const n = rows.length;
+  return `<div class="sculp ${animate ? 'anim' : ''}">
+    <div class="sculp-head">사회점수를 떨어뜨린 기업 <small>기업별 감점 합계</small></div>
+    ${rows.map((r, i) => `
+      <div class="sculp-row ${r.rank === 1 && r.total < 0 ? 'top' : ''} ${r.total < 0 ? '' : 'zero'}" style="--c:${r.color}; --d:${animate ? (n - 1 - i) * 0.45 : 0}s">
+        <span class="rk">${r.rank}위</span>
+        <span class="nm"><i></i>${esc(r.name)}</span>
+        <span class="parts">${r.parts.map((x) => `<em class="${x.category}">${esc(x.label)} ${scoreText(x.delta)}</em>`).join('')}</span>
+        <span class="pt num">${r.total < 0 ? scoreText(r.total) : '0'}</span>
+      </div>`).join('')}
+  </div>`;
+}
+
+// 범주별 감점 카드 → 감점 기업 순위로 바뀌는 장면: 카드가 사라지고 5위부터 1위까지 차례로 등장
+function scoreToCulprits(sc) {
+  const box = $('.score-cats', stage);
+  box.classList.add('swap-out');
+  at(550, () => {
+    box.classList.remove('swap-out');
+    box.innerHTML = culpritBoard(sc.culprits, true);
+    at(0.45 * (sc.culprits.length - 1) * 1000 + 350, () => accent());
+  });
 }
 
 function scoreQuestions(sc) {
@@ -806,7 +819,6 @@ function fitReasons() {
   const rem = remPx();
   requestAnimationFrame(() => {
     $$('.resp-row .why').forEach((el) => fitText(el, { max: rem * 2.4, min: rem * 1.1 }));
-    $$('.sum-row .txt').forEach((el) => fitText(el, { max: rem * 2.8, min: rem * 1.2 }));
   });
 }
 
@@ -820,7 +832,7 @@ function updateLive(v) {
   const done = new Set(v.submittedTeams ?? []);
   row.innerHTML = v.companies.map((c) => {
     const on = k === 'intro' ? c.connected : done.has(c.id);
-    const label = ['summary', 'reflection'].includes(k) ? (on ? '✓ 제출 완료' : '쓰는 중…') : k === 'intro'
+    const label = k === 'reflection' ? (on ? '✓ 제출 완료' : '쓰는 중…') : k === 'intro'
       ? (c.connected ? `✓ ${c.group ? `${c.group}모둠` : '접속'}` : c.group ? `${c.group}모둠 · 연결 끊김` : '대기 중')
       : on ? '✓ 결정 완료' : '회의 중…';
     return `<div class="company-card ${on ? 'on' : ''}" style="--c:${c.color}"><span class="blob"></span>${esc(c.name)}<small>${label}</small></div>`;
@@ -1013,5 +1025,5 @@ function confetti() {
 }
 
 window.addEventListener('resize', () => {
-  if (view && ['responses', 'reflectionResponses', 'summaryResponses'].includes(view.step.kind)) fitReasons();
+  if (view && ['responses', 'reflectionResponses'].includes(view.step.kind)) fitReasons();
 });
