@@ -644,6 +644,7 @@ const RENDER = {
         <div class="round-label">○ ${esc(sm.title)}</div>
         <p class="sum-ask">${esc(sm.ask)}</p>
         <p class="sum-frame">${summaryHtml(sm, () => '<span class="sum-blank"></span>').replace(', ', ',<br>')}</p>
+        <p class="sum-note">✏️ ${esc(sm.note)}</p>
       </div>`;
   },
 };
