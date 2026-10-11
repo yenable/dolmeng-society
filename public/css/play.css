@@ -193,3 +193,16 @@ body.play.dim .stat.profit { background: #000; }
 .timer-row { display: flex; margin: 0 0 12px; }
 .timer-row.center { justify-content: center; margin: 4px 0 14px; }
 .play-timer { font-size: 26px; }
+
+/* 마지막: 배운 내용 한 문장으로 정리 (빈칸이 문장 안에 들어감) */
+.summary-sentence { font-size: 26px; line-height: 2.1; font-weight: 700; margin: 4px 0 6px; }
+.summary-sentence .sb-wrap { display: inline-block; vertical-align: baseline; margin: 0 4px; }
+.summary-sentence .sb {
+  font: inherit; font-size: 22px; font-weight: 800; color: var(--team); width: 13em; max-width: 72vw;
+  border: 0; border-bottom: 3px solid var(--team); background: var(--bg); border-radius: 8px 8px 0 0; padding: 4px 10px; text-align: center;
+}
+.summary-sentence .sb:focus { outline: none; background: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--team) 25%, transparent); }
+.summary-panel .hints span { display: block; white-space: normal; margin: 0; }
+.muted-label { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.summary-done { font-size: 26px; line-height: 1.7; font-weight: 700; margin: 10px 0 0; }
+.summary-done strong { color: var(--team); font-weight: 900; border-bottom: 3px solid var(--team); padding: 0 4px; }

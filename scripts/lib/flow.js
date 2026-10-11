@@ -188,6 +188,22 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
   assert.equal(tv.reflections.filter((x) => x.submitted).length, 5);
   log('  ✓ 정리 활동 제출 · TV 공개');
 
+  // 마지막: 배운 내용 한 문장 정리 (빈칸 2개) → TV 에 모둠별 문장 공개
+  await c.admin('next', { from: 'REFLECTION_RESPONSES', presenter: true });
+  assert.equal((await c.tv()).step.id, 'SUMMARY');
+  assert.equal((await c.post('/api/play/summary', { token: tokens[1], blanks: ['가격을 정', ''] })).status, 400);
+  const s1 = await c.post('/api/play/summary', { token: tokens[1], blanks: ['가격을 스스로 정', '환경을 보호'] });
+  assert.equal(s1.status, 200, JSON.stringify(s1.body));
+  assert.deepEqual(s1.body.view.summary.mine.blanks, ['가격을 스스로 정', '환경을 보호']);
+  assert.equal((await c.admin('next', { from: 'SUMMARY', presenter: true })).status, 423);
+  await c.admin('testAutoSummary');
+  await c.admin('next', { from: 'SUMMARY', presenter: true });
+  tv = await c.tv();
+  assert.equal(tv.step.id, 'SUMMARY_RESPONSES');
+  assert.equal(tv.summaries.filter((x) => x.submitted).length, 5);
+  assert.deepEqual(tv.summaries.find((x) => x.teamId === 1).blanks, ['가격을 스스로 정', '환경을 보호']);
+  log('  ✓ 배운 내용 한 문장 정리 제출 · TV 공개');
+
   // 연결 해제 → 그 학생만 토큰 무효
   await c.admin('release', { teamId: 5 });
   assert.equal((await c.me(tokens[5])).tokenRejected, true);

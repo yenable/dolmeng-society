@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { GAME_CONFIG as C } from './config.js';
 import {
-  COMPANIES, TEAM_IDS, ROUNDS, REFLECTION, CLOSING_TEXT, CATEGORY_LABELS, SAMPLE_REASONS, SCORE_QUESTIONS, LESSON, CONCEPT,
+  COMPANIES, TEAM_IDS, ROUNDS, REFLECTION, SUMMARY, CATEGORY_LABELS, SAMPLE_REASONS, SCORE_QUESTIONS, LESSON, CONCEPT,
   optionOf, optionLabel, companyName,
 } from './content.js';
 import { buildNews } from './news.js';
@@ -63,7 +63,8 @@ export const STEPS = (() => {
     concept('CSR_SUMMARY', 'freedomCsr', '사회적 책임', '기업의 자유 + 사회적 책임', '기업의 자유 + 사회적 책임 정리'),
     { id: 'REFLECTION', kind: 'reflection', label: '정리 · 우리 기업의 선택 다시 생각하기', enterLabel: '우리 기업의 선택 다시 생각하기 (학생 화면 열기)' },
     { id: 'REFLECTION_RESPONSES', kind: 'reflectionResponses', label: '정리 · 바꾼 선택과 이유 공개', enterLabel: '바꾼 선택과 이유 공개' },
-    { id: 'CLOSING', kind: 'closing', dark: true, label: '마무리 문장', enterLabel: '마무리 문장' },
+    { id: 'SUMMARY', kind: 'summary', label: '정리 · 배운 내용 한 문장으로 정리하기', enterLabel: '배운 내용 정리하기 (학생 화면 열기)' },
+    { id: 'SUMMARY_RESPONSES', kind: 'summaryResponses', label: '정리 · 모둠별 정리 문장 공개', enterLabel: '정리 문장 공개' },
   );
   return s.map((x, index) => ({ ...x, index }));
 })();
@@ -144,6 +145,7 @@ export function createState(keepTeams = null) {
     standings: null,
     socialEvents: [],
     reflections: {},
+    summaries: {}, // 배운 내용 한 문장 정리 { 기업 번호: { blanks: [자유, 책임], submittedAt, byAdmin } }
     log: [],
   };
 }
@@ -170,6 +172,7 @@ export const SCENARIO_LIST = Object.entries(SCENARIOS).map(([key, v]) => ({ key,
 export class GameEngine {
   constructor(state) {
     this.state = state && state.version === STATE_VERSION && state.teams ? state : createState();
+    this.state.summaries ??= {}; // 정리 문장 기능 이전에 만든 세션
   }
 
   get step() {
@@ -285,6 +288,11 @@ export class GameEngine {
       this.log(`${companyName(id)} 정리 활동 제출 초기화`);
       return;
     }
+    if (round === 'summary') {
+      delete s.summaries[id];
+      this.log(`${companyName(id)} 정리 문장 제출 초기화`);
+      return;
+    }
     const r = Number(round);
     if (!ROUNDS[r]) throw new GameError('잘못된 라운드');
     if (s.rounds[r]?.computed) throw new GameError('이미 결과가 계산된 라운드는 초기화할 수 없습니다.');
@@ -314,6 +322,22 @@ export class GameEngine {
     if (!reason) reason = '(선생님이 대신 입력)';
     s.reflections[id] = { target, round, from, to: opt.value, reason, submittedAt: Date.now(), byAdmin };
     this.log(`${companyName(id)} 정리 활동 제출`);
+    return { ok: true };
+  }
+
+  // 배운 내용 한 문장 정리: '기업은 (blanks[0])할 자유가 있지만, (blanks[1])할 책임도 있다.'
+  summarize(teamId, body, { byAdmin = false } = {}) {
+    const s = this.state;
+    const id = Number(teamId);
+    if (!s.teams[id]) throw new GameError('잘못된 요청입니다.');
+    if (!byAdmin && this.step.kind !== 'summary') throw new GameError('지금은 제출할 수 없습니다. 선생님의 안내를 기다려 주세요.');
+    if (s.summaries[id] && !byAdmin) return { already: true };
+    const raw = Array.isArray(body.blanks) ? body.blanks : [];
+    // 학생이 '~하다/~할'까지 써도 문장이 자연스럽게 이어지도록 끝의 '하다·할' 은 떼어 냄
+    const blanks = [0, 1].map((i) => cleanText(raw[i]).slice(0, SUMMARY.maxLength).replace(/\s*(하다|할)$/, ''));
+    if (!byAdmin && blanks.some((b) => !b)) throw new GameError('빈칸 두 곳을 모두 채워 주세요.');
+    s.summaries[id] = { blanks: blanks.map((b) => b || '(선생님이 대신 입력)'), submittedAt: Date.now(), byAdmin };
+    this.log(`${companyName(id)} 정리 문장 ${byAdmin ? '대신 ' : ''}제출`);
     return { ok: true };
   }
 
@@ -386,6 +410,7 @@ export class GameEngine {
     const open = st.round && !s.rounds[st.round]?.computed && TEAM_IDS.some((id) => !s.submissions[st.round][id]);
     if (open && (st.kind === 'meeting' || (st.kind === 'responses' && dir > 0))) return '아직 결정 중인 기업이 있습니다.';
     if (st.kind === 'reflection' && TEAM_IDS.some((id) => !s.reflections[id])) return '아직 정리 활동을 쓰고 있는 기업이 있습니다.';
+    if (st.kind === 'summary' && dir > 0 && TEAM_IDS.some((id) => !s.summaries[id])) return '아직 정리 문장을 쓰고 있는 기업이 있습니다.';
     return null;
   }
 
@@ -750,6 +775,7 @@ export class GameEngine {
     const st = this.step;
     if (st.round) return Object.keys(this.state.submissions[st.round]).length;
     if (st.kind === 'reflection' || st.kind === 'reflectionResponses') return Object.keys(this.state.reflections).length;
+    if (st.kind === 'summary' || st.kind === 'summaryResponses') return Object.keys(this.state.summaries).length;
     return 0;
   }
 
@@ -795,6 +821,13 @@ export class GameEngine {
     return { count: col.count, total: TOTAL, members: col.members.map((id) => ({ id, name: companyName(id), color: colorOf(id) })) };
   }
 
+  summariesPublic() {
+    return COMPANIES.map((c) => {
+      const f = this.state.summaries[c.id];
+      return { teamId: c.id, name: c.name, color: c.color, submitted: !!f, blanks: f ? f.blanks : null, byAdmin: !!f?.byAdmin };
+    });
+  }
+
   reflectionsPublic() {
     return COMPANIES.map((c) => {
       const f = this.state.reflections[c.id];
@@ -820,6 +853,10 @@ export class GameEngine {
     if (st.kind === 'meeting') v.submittedTeams = Object.keys(s.submissions[st.round]).map(Number);
     v.timer = this.timerPublic();
     if (st.kind === 'reflection') v.submittedTeams = Object.keys(s.reflections).map(Number);
+    if (st.kind === 'summary') {
+      v.submittedTeams = Object.keys(s.summaries).map(Number);
+      v.summary = SUMMARY;
+    }
     if (st.round) v.roundInfo = ROUNDS[st.round];
     if (['responses', 'result', 'rank'].includes(st.kind)) v.responses = this.responsesPublic(st.round);
     if (['result', 'rank'].includes(st.kind) && s.rounds[st.round]?.computed) {
@@ -848,7 +885,10 @@ export class GameEngine {
       };
     }
     if (st.kind === 'reflectionResponses') v.reflections = this.reflectionsPublic();
-    if (st.kind === 'closing') v.closing = CLOSING_TEXT;
+    if (st.kind === 'summaryResponses') {
+      v.summary = SUMMARY;
+      v.summaries = this.summariesPublic();
+    }
     if (st.kind === 'lesson') v.lesson = this.lessonPublic(st);
     if (st.kind === 'concept') v.concept = CONCEPT[st.slide];
     if (st.slide === 'act2Ask') v.standings = this.standingsPublic(4); // 활동 2 발문 왼쪽: 실제 최종 이윤·순위
@@ -902,7 +942,7 @@ export class GameEngine {
       }
     }
     if (st.kind === 'final') v.standings = this.standingsPublic(4);
-    if (['reflection', 'reflectionResponses', 'closing'].includes(st.kind)) {
+    if (['reflection', 'reflectionResponses'].includes(st.kind)) {
       v.reflection = {
         ...REFLECTION,
         decisions: Object.entries(DECISION_ROUND).map(([target, round]) => ({
@@ -921,7 +961,9 @@ export class GameEngine {
         canReflect: st.kind === 'reflection' && !s.reflections[teamId],
       };
     }
-    if (st.kind === 'closing') v.closing = CLOSING_TEXT;
+    if (['summary', 'summaryResponses'].includes(st.kind)) {
+      v.summary = { ...SUMMARY, mine: s.summaries[teamId] ?? null, canSubmit: st.kind === 'summary' && !s.summaries[teamId] };
+    }
     return v;
   }
 
@@ -953,6 +995,10 @@ export class GameEngine {
     if (st.kind === 'reflection') {
       const missing = TEAM_IDS.filter((id) => !s.reflections[id]).map(companyName);
       if (missing.length) warning = `아직 제출하지 않은 기업: ${missing.join(', ')}`;
+    }
+    if (st.kind === 'summary') {
+      const missing = TEAM_IDS.filter((id) => !s.summaries[id]).map(companyName);
+      if (missing.length) warning = `아직 정리 문장을 제출하지 않은 기업: ${missing.join(', ')}`;
     }
     return { label: nxt.enterLabel ?? nxt.label, toLabel: nxt.label, toId: nxt.id, warning, assign };
   }
@@ -1001,6 +1047,8 @@ export class GameEngine {
       },
       news: this.news(),
       reflections: this.reflectionsPublic(),
+      summaries: this.summariesPublic(),
+      summary: SUMMARY,
       scenarios: SCENARIO_LIST,
       config: C,
       log: s.log.slice(0, 30),
@@ -1052,6 +1100,12 @@ export class GameEngine {
     }
     this.enter('FINAL_PROFIT', +1);
     this.log(`테스트: '${SCENARIOS[scenarioKey]?.label ?? scenarioKey}' 시나리오로 4라운드 자동 완료`);
+  }
+
+  testAutoSummary() {
+    for (const id of TEAM_IDS) {
+      if (!this.state.summaries[id]) this.summarize(id, { blanks: pick(SAMPLE_REASONS.summary) }, { byAdmin: true });
+    }
   }
 
   testAutoReflect() {

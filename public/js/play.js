@@ -99,7 +99,7 @@ function render() {
   renderHud(v);
   const key = [
     v.sessionId, v.me?.id ?? '-', v.step.kind === 'lesson' ? 'INTRO' : v.step.id, v.canSubmit, !!v.mySubmission, v.roundComputed, !!v.myResult,
-    v.reflection?.canReflect, !!v.reflection?.mine, v.canSubmit ? v.me.cash : '', v.me ? v.me.group : JSON.stringify(v.groups),
+    v.reflection?.canReflect, !!v.reflection?.mine, v.summary?.canSubmit, !!v.summary?.mine, v.canSubmit ? v.me.cash : '', v.me ? v.me.group : JSON.stringify(v.groups),
   ].join('|');
   if (key === screenKey) {
     $$('[data-live="submitted"]').forEach((el) => { el.textContent = v.submittedCount; });
@@ -118,9 +118,11 @@ function render() {
   }
   if ((k === 'result' || k === 'rank') && v.myResult) return renderResult(v);
   if (k === 'final') return renderFinal(v);
-  if (v.step.dark && k !== 'closing') return renderTv();
+  if (k === 'summary' && v.summary?.canSubmit) return renderSummaryForm(v);
+  if (k === 'summary' || k === 'summaryResponses') return renderSummaryDone(v);
+  if (v.step.dark) return renderTv();
   if (k === 'reflection' && v.reflection?.canReflect) return renderReflectionForm(v);
-  if (['reflection', 'reflectionResponses', 'closing'].includes(k)) return renderReflectionDone(v);
+  if (['reflection', 'reflectionResponses'].includes(k)) return renderReflectionDone(v);
   return renderTv();
 }
 
@@ -539,19 +541,87 @@ function renderReflectionForm(v) {
 
 function renderReflectionDone(v) {
   const mine = v.reflection?.mine;
-  const closing = v.step.kind === 'closing';
   main.innerHTML = `
     <section class="center-wrap fade-up">
       <p class="eyebrow">정리 · 다시 경영한다면?</p>
       ${mine ? `
-        ${closing ? '' : '<div class="done-badge pop">✓ 제출 완료</div>'}
+        <div class="done-badge pop">✓ 제출 완료</div>
         <p class="lead">우리 기업은 <b>${esc(withJosa(mine.decisionLabel, '을'))}</b> 이렇게 바꾸고 싶어요.</p>
         <p class="change-show"><span class="from">${esc(mine.fromLabel)}</span> → ${esc(mine.toLabel)}</p>
         <p class="reason-show">그 이유는 <em>${esc(mine.reason)}</em> 때문입니다.</p>
       ` : '<h1>선생님의 안내를 기다려 주세요</h1>'}
-      ${closing
-        ? `<p class="closing-line">${v.closing.map(esc).join('<br>')}</p>`
-        : `<p class="wait"><b data-live="submitted">${v.submittedCount}</b> / ${v.totalTeams} 기업 제출 완료 · TV 화면을 함께 봐요</p>`}
+      <p class="wait"><b data-live="submitted">${v.submittedCount}</b> / ${v.totalTeams} 기업 제출 완료 · TV 화면을 함께 봐요</p>
+    </section>`;
+}
+
+// ── 마지막: 배운 내용 한 문장으로 정리 ─────────────────────
+// 문장 조각을 그대로 그리고, { blank } 자리는 입력칸(작성 중) 또는 채운 말(제출 후)
+function summarySentence(sm, fill) {
+  return sm.sentence.map((seg) => (typeof seg === 'string' ? esc(seg) : fill(seg.blank))).join('');
+}
+
+function renderSummaryForm(v) {
+  const sm = v.summary;
+  loadForm(`${v.sessionId}:${v.me.id}:summary`);
+  form.blanks ??= ['', ''];
+  main.innerHTML = `
+    <div class="round-head fade-up"><span class="round-tag">정리</span><h1>${esc(sm.title)}</h1></div>
+    <p class="step-label">${esc(sm.ask)}</p>
+    <div class="panel summary-panel">
+      <p class="summary-sentence">${summarySentence(sm, (i) => `<span class="sb-wrap"><input class="sb" data-blank="${i}" maxlength="${sm.maxLength}" placeholder="빈칸 ${i + 1}" autocomplete="off"></span>`)}</p>
+      <div class="hints"><b>생각 도움</b>${sm.hints.map((h) => `<span>· ${esc(h)}</span>`).join('')}</div>
+    </div>
+    <div class="panel">
+      <p class="muted-label">완성된 문장</p>
+      <p class="sentence" id="preview"></p>
+    </div>
+    <div class="submit-row"><span class="why" id="why"></span><button class="btn accent big" id="submit">제출하기</button></div>`;
+
+  const inputs = $$('.sb', main);
+  inputs.forEach((el) => { el.value = form.blanks[el.dataset.blank] || ''; });
+  const update = () => {
+    const vals = inputs.map((el) => el.value.trim());
+    $('#preview').innerHTML = summarySentence(sm, (i) => (vals[i] ? `<strong>${esc(vals[i])}</strong>` : '<strong class="empty">(　　)</strong>'));
+    const why = vals.some((x) => !x) ? '빈칸 두 곳을 모두 채워 주세요' : '';
+    $('#why').textContent = why;
+    $('#submit').disabled = !!why || busy;
+  };
+  inputs.forEach((el) => el.addEventListener('input', () => {
+    form.blanks[el.dataset.blank] = el.value;
+    saveForm();
+    update();
+  }));
+  $('#submit').addEventListener('click', async () => {
+    if (busy || !confirm('이 문장으로 제출할까요? 제출한 뒤에는 바꿀 수 없어요.')) return;
+    busy = true;
+    $('#submit').disabled = true;
+    try {
+      const r = await api('/api/play/summary', { token, blanks: inputs.map((el) => el.value) });
+      clearForm();
+      busy = false;
+      if (r.view) onState(r.view);
+    } catch (e) {
+      busy = false;
+      toast(e.message, { error: true, ms: 4000 });
+      if ($('#submit')) update();
+    }
+  });
+  update();
+}
+
+function renderSummaryDone(v) {
+  const sm = v.summary;
+  const mine = sm.mine;
+  main.innerHTML = `
+    <section class="center-wrap fade-up">
+      <p class="eyebrow">정리 · ${esc(sm.title)}</p>
+      ${mine ? `
+        ${v.step.kind === 'summary' ? '<div class="done-badge pop">✓ 제출 완료</div>' : ''}
+        <p class="summary-done">${summarySentence(sm, (i) => `<strong>${esc(mine.blanks[i])}</strong>`)}</p>
+      ` : '<h1>선생님의 안내를 기다려 주세요</h1>'}
+      <p class="wait">${v.step.kind === 'summary'
+        ? `<b data-live="submitted">${v.submittedCount}</b> / ${v.totalTeams} 기업 제출 완료 · TV 화면을 함께 봐요`
+        : '모든 모둠의 문장이 <b>TV에 공개</b>되었어요.'}</p>
     </section>`;
 }
 

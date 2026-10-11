@@ -457,3 +457,14 @@ body.display.special .tv-timer:not(.low):not(.over):not(.paused) { background: #
 /* 뉴스 본문: 해당 기업 이름 굵게 · 소비자 인터뷰 노란색 */
 .news .lines b.co { color: #fff; font-weight: 900; }
 .news .lines .quote { color: #ffd84d; font-weight: 700; }
+
+/* 마지막: 배운 내용 한 문장으로 정리 */
+.sum-ask { font-size: 2.8rem; font-weight: 700; color: var(--ink-2); margin: 1.4rem 0 3.2rem; }
+.sum-frame { font-size: 5rem; font-weight: 900; letter-spacing: -0.03em; line-height: 1.5; margin: 0; }
+.sum-blank { display: inline-block; width: 16rem; height: 1em; vertical-align: -.12em; margin: 0 .6rem; border-bottom: .5rem solid var(--accent); }
+.sum-list { flex: 1; min-height: 0; display: grid; grid-template-rows: repeat(5, 1fr); gap: 1.2rem; }
+.sum-row { display: grid; grid-template-columns: 17rem 1fr; gap: 2rem; align-items: center; background: #fff; border-radius: 1.2rem; padding: 0 2.2rem; border-left: .7rem solid var(--c); animation: fadeUp .5s ease both; min-height: 0; }
+.sum-row .who { font-size: 2.2rem; font-weight: 900; }
+.sum-row .txt { font-size: 2.8rem; font-weight: 700; line-height: 1.35; }
+.sum-row .txt b { color: var(--c); font-weight: 900; border-bottom: .3rem solid var(--c); padding: 0 .3rem; }
+.sum-row.missing .txt { color: var(--muted); font-size: 2rem; }

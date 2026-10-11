@@ -164,8 +164,8 @@ function renderNav(v) {
       <button class="btn small" data-timer-op="reset" ${busy ? 'disabled' : ''}>⏱ 2분 타이머 시작</button></div>`;
   }
   if (computed && ['meeting', 'responses'].includes(st.kind)) extra += '<div class="info">이 라운드는 이미 결과가 계산되었습니다. 다시 계산되지 않습니다.</div>';
-  if (st.kind === 'meeting' || st.kind === 'reflection') {
-    const n = st.kind === 'reflection' ? v.reflections.filter((r) => r.submitted).length : Object.values(v.submissions[st.round]).filter(Boolean).length;
+  if (st.kind === 'meeting' || st.kind === 'reflection' || st.kind === 'summary') {
+    const n = st.kind === 'summary' ? v.summaries.filter((r) => r.submitted).length : st.kind === 'reflection' ? v.reflections.filter((r) => r.submitted).length : Object.values(v.submissions[st.round]).filter(Boolean).length;
     extra = `<div class="info">제출 현황: <b>${n} / 5</b></div>${extra}`;
   }
   $('#nav').innerHTML = `
@@ -198,11 +198,13 @@ function connCell(t) {
 function renderTeams(v) {
   const st = v.step;
   const r = st.round;
-  const inReflection = ['reflection', 'reflectionResponses', 'closing'].includes(st.kind);
+  const inReflection = ['reflection', 'reflectionResponses'].includes(st.kind);
+  const inSummary = ['summary', 'summaryResponses'].includes(st.kind);
   const computed = r && v.rounds[r]?.computed;
   let subHead = '선택 요약';
   if (r) subHead = `${r}라운드 제출 (선택 · 이유)`;
   if (inReflection) subHead = '정리 활동 제출';
+  if (inSummary) subHead = '배운 내용 정리 문장';
   $('#teams-sub').textContent = r ? (computed ? `${r}라운드 계산 완료` : `${r}라운드 진행 중`) : '';
 
   const rows = v.teams.map((t) => {
@@ -225,6 +227,13 @@ function renderTeams(v) {
         : '<span class="sub-none">아직 제출하지 않음</span>';
       actions += `<button class="btn small ghost" data-reflect-for="${t.id}">대신 ${f?.submitted ? '수정' : '제출'}</button>`;
       if (f?.submitted) actions += `<button class="btn small ghost" data-clear="${t.id}" data-round="reflection">제출 초기화</button>`;
+    } else if (inSummary) {
+      const f = v.summaries.find((x) => x.teamId === t.id);
+      subCell = f?.submitted
+        ? `<div class="sub-reason">${v.summary.sentence.map((seg) => (typeof seg === 'string' ? esc(seg) : `<b>${esc(f.blanks[seg.blank])}</b>`)).join('')}${f.byAdmin ? '<span class="badge">대신 입력</span>' : ''}</div>`
+        : '<span class="sub-none">아직 제출하지 않음</span>';
+      actions += `<button class="btn small ghost" data-summary-for="${t.id}">대신 ${f?.submitted ? '수정' : '입력'}</button>`;
+      if (f?.submitted) actions += `<button class="btn small ghost" data-clear="${t.id}" data-round="summary">제출 초기화</button>`;
     } else {
       const c = t.choices;
       subCell = `<span class="muted">${[c.price, c.ad, c.production, c.collusion && `공동제안 ${c.collusion}`].filter(Boolean).map(esc).join(' · ') || '-'}</span>`;
@@ -242,7 +251,19 @@ function renderTeams(v) {
   $('#teams').innerHTML = `<thead><tr><th>기업 · 접속</th><th class="num">현재 가진 돈</th><th class="num">판 돈(누적)</th><th class="num">이윤 · 순위</th><th>${subHead}</th><th></th></tr></thead><tbody>${rows}</tbody>`;
 
   $$('[data-submit-for]').forEach((b) => b.addEventListener('click', () => openSubmitDialog(Number(b.dataset.submitFor))));
-  $$('[data-reflect-for]').forEach((b) => b.addEventListener('click', () => openReflectDialog(Number(b.dataset.reflectFor))));
+  $('[data-reflect-for]').forEach((b) => b.addEventListener('click', () => openReflectDialog(Number(b.dataset.reflectFor))));
+  // 정리 문장 대신 입력: 빈칸 두 곳을 차례로 물어봄 (모둠이 말로 발표한 내용을 받아 적을 때)
+  $('[data-summary-for]').forEach((b) => b.addEventListener('click', () => {
+    const t = v.teams.find((x) => x.id === Number(b.dataset.summaryFor));
+    const prev = v.summaries.find((x) => x.teamId === t.id)?.blanks ?? ['', ''];
+    const a = prompt(`${t.name} · 기업은 (     )할 자유가 있지만 …
+첫 번째 빈칸`, prev[0]);
+    if (a == null) return;
+    const c = prompt(`${t.name} · … (     )할 책임도 있다.
+두 번째 빈칸`, prev[1]);
+    if (c == null) return;
+    act('summarizeFor', { teamId: t.id, blanks: [a, c] });
+  }));
   $$('[data-clear]').forEach((b) => b.addEventListener('click', () => {
     const t = v.teams.find((x) => x.id === Number(b.dataset.clear));
     if (confirm(`${t.name}의 제출을 초기화할까요?\n(사용한 비용은 돌려주고, 학생이 다시 제출할 수 있습니다)`)) act('clearSubmission', { teamId: t.id, round: b.dataset.round });
@@ -257,7 +278,7 @@ function renderSteps(v) {
   const idx = v.steps.findIndex((x) => x.current);
   let group = '';
   const html = v.steps.map((s) => {
-    const g = s.group ? s.group : s.kind === 'lesson' ? '도입' : s.kind === 'intro' ? '활동 1 · 기업 경영 시뮬레이션' : s.round ?`${s.round}라운드` : s.kind.startsWith('reflection') || s.kind === 'closing' ? '정리' : s.dark ? '사회적 영향 공개' : '';
+    const g = s.group ? s.group : s.kind === 'lesson' ? '도입' : s.kind === 'intro' ? '활동 1 · 기업 경영 시뮬레이션' : s.round ?`${s.round}라운드` : s.kind.startsWith('reflection') || s.kind.startsWith('summary') ? '정리' : s.dark ? '사회적 영향 공개' : '';
     const head = g && g !== group ? `<li class="group">${g}</li>` : '';
     group = g || group;
     const cls = s.current ? 'cur' : !s.available ? 'off' : s.index < idx ? 'done' : '';

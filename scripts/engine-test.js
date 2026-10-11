@@ -351,6 +351,36 @@ test('테스트 자동 접속 기업도 모둠 번호를 받고, 실제 모둠�
   assert.equal(g.state.teams[vid].virtual, false);
 });
 
+test('마지막: 배운 내용 한 문장 정리 (빈칸 2개) · 정리 단계에서만 · 한 번만 · 마지막 단계', () => {
+  const g = new GameEngine();
+  g.testAutoJoin();
+  assert.equal(STEPS[STEPS.length - 1].id, 'SUMMARY_RESPONSES');
+  assert.throws(() => g.summarize(1, { blanks: ['가격을 정', '환경을 보호'] }), /지금은 제출할 수 없습니다/);
+  goto(g, 'SUMMARY');
+  const v = g.teamView(1, conns);
+  assert.equal(v.summary.canSubmit, true);
+  assert.deepEqual(v.summary.sentence.filter((x) => typeof x !== 'string'), [{ blank: 0 }, { blank: 1 }]);
+  assert.throws(() => g.summarize(1, { blanks: ['가격을 정', '  '] }), /빈칸 두 곳/);
+  g.summarize(1, { blanks: ['가격을 스스로 정하다', '환경을 보호할'] }); // 끝의 '하다/할' 은 떼어 문장에 맞춤
+  assert.deepEqual(g.state.summaries[1].blanks, ['가격을 스스로 정', '환경을 보호']);
+  assert.equal(g.summarize(1, { blanks: ['a', 'b'] }).already, true);
+  assert.equal(g.teamView(1, conns).summary.canSubmit, false);
+  assert.equal(g.displayView(conns).submittedTeams.length, 1);
+  assert.throws(() => g.next('SUMMARY', null, { safe: true }), (e) => e.status === 423);
+  assert.match(g.adminView(conns).nextAction.warning, /정리 문장을 제출하지 않은 기업/);
+  g.clearSubmission(1, 'summary');
+  assert.equal(g.teamView(1, conns).summary.canSubmit, true);
+  g.testAutoSummary();
+  g.next('SUMMARY', null, { safe: true });
+  const tv = g.displayView(conns);
+  assert.equal(tv.step.id, 'SUMMARY_RESPONSES');
+  assert.equal(tv.summaries.filter((x) => x.submitted).length, 5);
+  // 정리 문장 기능 전에 저장된 세션도 그대로 열림
+  const old = JSON.parse(JSON.stringify(g.state));
+  delete old.summaries;
+  assert.deepEqual(new GameEngine(old).state.summaries, {});
+});
+
 test('이미 선택된 기업은 다른 노트북이 가져갈 수 없음', () => {
   const g = new GameEngine();
   g.claim(2);

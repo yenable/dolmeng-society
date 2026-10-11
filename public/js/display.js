@@ -76,7 +76,7 @@ function onState(v) {
   // 화면을 다시 그릴지 결정하는 키 (접속·제출 수 같은 작은 변화는 다시 그리지 않고 갱신만)
   const key = JSON.stringify({
     ...v, rev: 0, serverTime: 0,
-    submittedCount: ['meeting', 'reflection'].includes(k) ? 0 : v.submittedCount,
+    submittedCount: ['meeting', 'reflection', 'summary'].includes(k) ? 0 : v.submittedCount,
     submittedTeams: 0,
     companies: 0,
     timer: 0, // 타이머는 다시 그리지 않고 숫자만 갱신
@@ -149,6 +149,9 @@ function render(v, prev) {
   const r = RENDER[k] ?? RENDER.intro;
   r(v, prev);
 }
+
+// 정리 문장: 조각 목록을 그리고 { blank } 자리는 fill(번호) 로
+const summaryHtml = (sm, fill) => sm.sentence.map((seg) => (typeof seg === 'string' ? esc(seg) : fill(seg.blank))).join('');
 
 const roundPill = (v) => `ROUND ${v.roundInfo.round} · ${esc(v.roundInfo.title)}`;
 
@@ -629,8 +632,31 @@ const RENDER = {
     fitReasons();
   },
 
-  closing(v) {
-    stage.innerHTML = `<div class="center closing">${v.closing.map((l) => `<p>${esc(l)}</p>`).join('')}</div>`;
+  // 마지막: 배운 내용 한 문장으로 정리 — 문장 틀을 크게 보여주고 모둠 제출 현황
+  summary(v) {
+    const sm = v.summary;
+    stage.innerHTML = `${topbar(v, '정리')}
+      <div class="center">
+        <div class="round-label">○ ${esc(sm.title)}</div>
+        <p class="sum-ask">${esc(sm.ask)}</p>
+        <p class="sum-frame">${summaryHtml(sm, () => '<span class="sum-blank"></span>')}</p>
+        <div class="meeting-count"><b id="cnt">${v.submittedCount}</b> / ${v.totalTeams} 기업 제출 완료</div>
+        <div class="company-row" id="companies"></div>
+      </div>`;
+  },
+
+  // 모둠별로 완성한 문장 공개 (채운 말은 기업 색으로 강조)
+  summaryResponses(v) {
+    const sm = v.summary;
+    stage.innerHTML = `${topbar(v, '정리')}
+      <div class="table-title">${esc(sm.title)} <small>${esc(sm.ask)}</small></div>
+      <div class="sum-list">
+        ${v.summaries.map((r, i) => `
+          <div class="sum-row ${r.submitted ? '' : 'missing'}" style="--c:${r.color}; animation-delay:${i * 0.15}s">
+            <div class="who">${esc(r.name)}</div>
+            <div class="txt">${r.submitted ? summaryHtml(sm, (b) => `<b>${esc(r.blanks[b])}</b>`) : '미제출'}</div>
+          </div>`).join('')}
+      </div>`;
   },
 };
 
@@ -790,7 +816,7 @@ function updateLive(v) {
   const done = new Set(v.submittedTeams ?? []);
   row.innerHTML = v.companies.map((c) => {
     const on = k === 'intro' ? c.connected : done.has(c.id);
-    const label = k === 'intro'
+    const label = k === 'summary' ? (on ? '✓ 제출 완료' : '쓰는 중…') : k === 'intro'
       ? (c.connected ? `✓ ${c.group ? `${c.group}모둠` : '접속'}` : c.group ? `${c.group}모둠 · 연결 끊김` : '대기 중')
       : on ? '✓ 결정 완료' : '회의 중…';
     return `<div class="company-card ${on ? 'on' : ''}" style="--c:${c.color}"><span class="blob"></span>${esc(c.name)}<small>${label}</small></div>`;
