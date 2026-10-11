@@ -636,7 +636,7 @@ const RENDER = {
   summary(v) {
     const sm = v.summary;
     stage.innerHTML = `${topbar(v, '정리')}
-      <div class="center">
+      <div class="center sum-wrap">
         <div class="round-label">○ ${esc(sm.title)}</div>
         <p class="sum-ask">${esc(sm.ask)}</p>
         <p class="sum-frame">${summaryHtml(sm, () => '<span class="sum-blank"></span>')}</p>
@@ -654,9 +654,10 @@ const RENDER = {
         ${v.summaries.map((r, i) => `
           <div class="sum-row ${r.submitted ? '' : 'missing'}" style="--c:${r.color}; animation-delay:${i * 0.15}s">
             <div class="who">${esc(r.name)}</div>
-            <div class="txt">${r.submitted ? summaryHtml(sm, (b) => `<b>${esc(r.blanks[b])}</b>`) : '미제출'}</div>
+            <div class="txt"><span>${r.submitted ? summaryHtml(sm, (b) => `<b>${esc(r.blanks[b])}</b>`) : '미제출'}</span></div>
           </div>`).join('')}
       </div>`;
+    fitReasons();
   },
 };
 
@@ -803,7 +804,10 @@ function renderResponsesTable(v, title, sub) {
 
 function fitReasons() {
   const rem = remPx();
-  requestAnimationFrame(() => $$('.resp-row .why').forEach((el) => fitText(el, { max: rem * 2.4, min: rem * 1.1 })));
+  requestAnimationFrame(() => {
+    $$('.resp-row .why').forEach((el) => fitText(el, { max: rem * 2.4, min: rem * 1.1 }));
+    $$('.sum-row .txt').forEach((el) => fitText(el, { max: rem * 2.8, min: rem * 1.2 }));
+  });
 }
 
 // 다시 그리지 않고 갱신하는 부분 (접속 상태, 제출 수)
@@ -816,7 +820,7 @@ function updateLive(v) {
   const done = new Set(v.submittedTeams ?? []);
   row.innerHTML = v.companies.map((c) => {
     const on = k === 'intro' ? c.connected : done.has(c.id);
-    const label = k === 'summary' ? (on ? '✓ 제출 완료' : '쓰는 중…') : k === 'intro'
+    const label = ['summary', 'reflection'].includes(k) ? (on ? '✓ 제출 완료' : '쓰는 중…') : k === 'intro'
       ? (c.connected ? `✓ ${c.group ? `${c.group}모둠` : '접속'}` : c.group ? `${c.group}모둠 · 연결 끊김` : '대기 중')
       : on ? '✓ 결정 완료' : '회의 중…';
     return `<div class="company-card ${on ? 'on' : ''}" style="--c:${c.color}"><span class="blob"></span>${esc(c.name)}<small>${label}</small></div>`;
@@ -1009,5 +1013,5 @@ function confetti() {
 }
 
 window.addEventListener('resize', () => {
-  if (view && ['responses', 'reflectionResponses'].includes(view.step.kind)) fitReasons();
+  if (view && ['responses', 'reflectionResponses', 'summaryResponses'].includes(view.step.kind)) fitReasons();
 });

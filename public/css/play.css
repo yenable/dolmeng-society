@@ -196,9 +196,9 @@ body.play.dim .stat.profit { background: #000; }
 
 /* 마지막: 배운 내용 한 문장으로 정리 (빈칸이 문장 안에 들어감) */
 .summary-sentence { font-size: 26px; line-height: 2.1; font-weight: 700; margin: 4px 0 6px; }
-.summary-sentence .sb-wrap { display: inline-block; vertical-align: baseline; margin: 0 4px; }
+.summary-sentence .sb-wrap { display: inline-block; vertical-align: baseline; margin: 0 4px; max-width: 100%; }
 .summary-sentence .sb {
-  font: inherit; font-size: 22px; font-weight: 800; color: var(--team); width: 13em; max-width: 72vw;
+  font: inherit; font-size: 22px; font-weight: 800; color: var(--team); max-width: 100%; field-sizing: content; min-width: 8em;
   border: 0; border-bottom: 3px solid var(--team); background: var(--bg); border-radius: 8px 8px 0 0; padding: 4px 10px; text-align: center;
 }
 .summary-sentence .sb:focus { outline: none; background: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--team) 25%, transparent); }

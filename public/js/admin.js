@@ -251,9 +251,9 @@ function renderTeams(v) {
   $('#teams').innerHTML = `<thead><tr><th>기업 · 접속</th><th class="num">현재 가진 돈</th><th class="num">판 돈(누적)</th><th class="num">이윤 · 순위</th><th>${subHead}</th><th></th></tr></thead><tbody>${rows}</tbody>`;
 
   $$('[data-submit-for]').forEach((b) => b.addEventListener('click', () => openSubmitDialog(Number(b.dataset.submitFor))));
-  $('[data-reflect-for]').forEach((b) => b.addEventListener('click', () => openReflectDialog(Number(b.dataset.reflectFor))));
+  $$('[data-reflect-for]').forEach((b) => b.addEventListener('click', () => openReflectDialog(Number(b.dataset.reflectFor))));
   // 정리 문장 대신 입력: 빈칸 두 곳을 차례로 물어봄 (모둠이 말로 발표한 내용을 받아 적을 때)
-  $('[data-summary-for]').forEach((b) => b.addEventListener('click', () => {
+  $$('[data-summary-for]').forEach((b) => b.addEventListener('click', () => {
     const t = v.teams.find((x) => x.id === Number(b.dataset.summaryFor));
     const prev = v.summaries.find((x) => x.teamId === t.id)?.blanks ?? ['', ''];
     const a = prompt(`${t.name} · 기업은 (     )할 자유가 있지만 …
