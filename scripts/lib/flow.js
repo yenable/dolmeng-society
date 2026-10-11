@@ -27,6 +27,19 @@ export function client(base) {
   };
 }
 
+// 1~5모둠이 접속 → 기업은 서버가 무작위 배정. 교사 화면에서 모둠 ↔ 기업을 확인해 { 기업 번호: 토큰 } 으로 돌려줌
+export async function claimAll(c) {
+  const byGroup = {};
+  for (const g of [1, 2, 3, 4, 5]) {
+    const r = await c.post('/api/play/claim', { group: g });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    byGroup[g] = r.body.token;
+  }
+  const teams = (await c.adminState()).teams;
+  assert.deepEqual(teams.map((t) => t.group).sort(), [1, 2, 3, 4, 5], '모둠마다 기업 하나씩 배정');
+  return Object.fromEntries(teams.map((t) => [t.id, byGroup[t.group]]));
+}
+
 // restart(): 새 서버 인스턴스(같은 저장소)를 띄우고 base URL 을 돌려줌 — Vercel 의 다른 인스턴스로 요청이 가는 상황
 export async function runFlow(base, { restart, log = console.log } = {}) {
   let c = client(base);
@@ -47,15 +60,16 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
   log('  ✓ 교사 PIN 없으면 진행·조회 불가 · 서버 키 비공개');
 
   await c.admin('reset', { keepClaims: false });
-  const tokens = {};
-  for (const id of [1, 2, 3, 4, 5]) {
-    const r = await c.post('/api/play/claim', { teamId: id });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    tokens[id] = r.body.token;
-  }
-  assert.equal((await c.post('/api/play/claim', { teamId: 1 })).status, 409);
+  const tokens = await claimAll(c);
+  assert.equal((await c.post('/api/play/claim', { group: 1 })).status, 409);
+  assert.equal((await c.post('/api/play/claim', { group: 9 })).status, 400);
+  const pre = await c.me(tokens[1]);
+  assert.equal(pre.me.id, null, '도입 중에는 배정된 기업을 알려 주지 않음');
+  assert.ok(!JSON.stringify(pre).includes('말랑컴퍼니'));
+  await c.admin('goto', { stepId: 'INTRO' });
   const s0 = await c.me(tokens[1]);
   assert.equal(s0.me.name, '말랑컴퍼니');
+  assert.equal(s0.me.revealed, true);
   assert.equal(s0.me.cash, 1_000_000);
   assert.equal(s0.tokenRejected, false);
   assert.equal((await c.me('not-a-real-token')).tokenRejected, true);
@@ -184,9 +198,10 @@ export async function runFlow(base, { restart, log = console.log } = {}) {
   await c.admin('reset', { keepClaims: true });
   const kept = await c.me(tokens[2]);
   assert.notEqual(kept.sessionId, sid);
-  assert.equal(kept.me.id, 2);
   assert.equal(kept.me.cash, 1_000_000);
   const fresh = await c.adminState();
+  assert.equal(kept.me.group, fresh.teams.find((t) => t.id === 2).group, '초기화해도 모둠 ↔ 기업 배정 유지');
+  assert.equal(kept.me.revealed, false);
   assert.equal(fresh.social.score, 100);
   assert.equal(fresh.step.id, 'LESSON_WAIT'); // 새 세션은 도입(수업 대기 화면)부터
   // 전체 초기화 (접속도 초기화)

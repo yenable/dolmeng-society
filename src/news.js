@@ -70,8 +70,9 @@ export function buildNews(state) {
         col.count === total
           ? `슬랑이 기업 ${total}곳이 모두 약속하여 슬랑이 가격을 ${price} 이상으로 함께 올린 사실이 알려졌습니다.`
           : `${col.members.map(companyName).join(', ')} ${col.count}곳이 약속하여 슬랑이 가격을 ${price} 이상으로 함께 올린 사실이 알려졌습니다.`,
-        `이처럼 기업들이 서로 짜고 가격이나 거래 조건을 정하는 것을 ‘${COLLUSION_TERM.term}’이라고 합니다.`,
-        '담합이 이루어지면 소비자는 더 비싼 가격에 상품을 사게 되고, 공정한 경쟁도 어려워집니다.',
+        // 뜻 → 영향은 한 문단으로 이어서
+        `이처럼 기업들이 서로 짜고 가격이나 거래 조건을 정하는 것을 ‘${COLLUSION_TERM.term}’이라고 합니다. `
+          + '담합이 이루어지면 소비자는 더 비싼 가격에 상품을 사게 되고, 공정한 경쟁도 어려워집니다.',
       ],
       concept: COLLUSION_TERM,
       companies: col.members.map((id) => chip(id, '공동 가격 참여')),

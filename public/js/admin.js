@@ -231,7 +231,7 @@ function renderTeams(v) {
     }
     if (t.claimed) actions += `<button class="btn small ghost" data-release="${t.id}" title="다른 노트북으로 다시 접속해야 할 때">연결 해제</button>`;
     return `<tr>
-      <td><div class="nm"><span class="dot" style="--c:${t.color}"></span>${esc(t.name)}</div>${connCell(t)}</td>
+      <td><div class="nm"><span class="dot" style="--c:${t.color}"></span>${esc(t.name)}${t.group ? ` <span class="muted">${t.group}모둠</span>` : ''}</div>${connCell(t)}</td>
       <td class="num">${won(t.cash)}</td>
       <td class="num">${won(t.revenueTotal)}</td>
       <td class="num"><b class="${t.profit >= 0 ? 'pos' : 'neg'}">${signedWon(t.profit)}</b><div class="muted">${t.rank ? `${t.rank}위` : '-'}</div></td>

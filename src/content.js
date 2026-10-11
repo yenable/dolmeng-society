@@ -187,8 +187,12 @@ export const COLLUSION_TERM = { term: '담합', desc: '기업들이 서로 짜�
 //  TV 에서 PPT 처럼 → ← 로 넘김. 퀴즈의 초성 힌트·정답은 공개 단계가 되기 전에는 TV 로 보내지 않음.
 //  빈칸 문장: 줄마다 [문자열 | { blank: 번호 }] 조각 목록
 export const LESSON = {
+  // 1슬라이드 = 수업 표지 (수업 제목이 주인공, 단원·차시는 위에 작게)
   wait: {
-    title: '오늘은 기업을 직접 경영해봅니다',
+    unit: '2. 시장경제와 국가 간 거래',
+    lessonNo: '6차시',
+    lessonTitle: '기업의 자유와 책임',
+    title: '돌멩민국 사업 시뮬레이션',
     foot: '모둠별로 앉아 수업을 준비해주세요.',
   },
   testStart: {

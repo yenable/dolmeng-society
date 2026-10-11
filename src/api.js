@@ -59,7 +59,7 @@ export function createApi(store, { env = process.env } = {}) {
 
   const teamFromToken = (engine, token) => {
     const id = engine.teamIdByToken(token);
-    if (!id) throw new GameError('기업 연결이 끊어졌습니다. 기업을 다시 선택해 주세요.', 401);
+    if (!id) throw new GameError('모둠 연결이 끊어졌습니다. 모둠을 다시 선택해 주세요.', 401);
     return id;
   };
 
@@ -127,7 +127,7 @@ export function createApi(store, { env = process.env } = {}) {
     if (method !== 'POST') throw new GameError('Not found', 404);
 
     if (path === '/api/play/claim') {
-      const { engine, result: token } = await mutate((e) => e.claim(body.teamId));
+      const { engine, result: token } = await mutate((e) => e.claimGroup(body.group));
       return { ok: true, token, view: playView(engine, token) };
     }
     if (path === '/api/play/leave') {

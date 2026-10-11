@@ -118,6 +118,7 @@ export function createState(keepTeams = null) {
     teams[id] = {
       id,
       tokenHash: prev?.tokenHash ?? null,
+      group: prev?.group ?? null, // 접속한 모둠 번호 (1~5). 모둠을 고르면 빈 기업 중 하나가 무작위로 배정됨
       virtual: prev?.virtual ?? false,
       claimedAt: prev?.claimedAt ?? null,
       cash: C.STARTING_CASH,
@@ -193,8 +194,24 @@ export class GameEngine {
     return t ? t.id : null;
   }
 
+  // 학생은 모둠 번호만 고름 → 빈 기업 하나를 무작위로 배정. 어떤 기업인지는 INTRO(기업 선택 · 접속 확인)부터 공개
+  claimGroup(group) {
+    const g = Number(group);
+    if (!Number.isInteger(g) || g < 1 || g > TOTAL) throw new GameError('모둠을 다시 선택해 주세요.');
+    const teams = Object.values(this.state.teams);
+    const mine = teams.find((t) => t.group === g && t.tokenHash);
+    if (mine && !mine.virtual) {
+      throw new GameError(`${g}모둠은 이미 다른 노트북에서 접속했습니다. 잘못 선택한 모둠이 있다면 선생님께 말씀해 주세요.`, 409);
+    }
+    // 테스트용 가상 접속이 이 모둠 번호를 쓰고 있으면 그 기업을 이어받음
+    let pool = mine ? [mine] : teams.filter((t) => !t.tokenHash);
+    if (!pool.length) pool = teams.filter((t) => t.virtual && !t.group);
+    if (!pool.length) throw new GameError('모든 기업에 모둠이 배정되었습니다. 선생님께 말씀해 주세요.', 409);
+    return this.claim(pick(pool).id, g);
+  }
+
   // 원문 토큰을 돌려줌 (상태에는 해시만 남음)
-  claim(teamId) {
+  claim(teamId, group = null) {
     const t = this.state.teams[Number(teamId)];
     if (!t) throw new GameError('기업을 다시 선택해 주세요.');
     if (t.tokenHash && !t.virtual) {
@@ -203,13 +220,14 @@ export class GameEngine {
     const token = crypto.randomBytes(24).toString('hex');
     t.tokenHash = hashToken(token);
     t.virtual = false;
+    t.group = group;
     t.claimedAt = Date.now();
-    this.log(`${companyName(t.id)} 접속`);
+    this.log(`${companyName(t.id)} 접속${group ? ` (${group}모둠)` : ''}`);
     return token;
   }
 
   leave(teamId) {
-    if (!['lesson', 'intro'].includes(this.step.kind)) throw new GameError('게임이 시작된 뒤에는 기업을 바꿀 수 없습니다. 선생님께 말씀해 주세요.');
+    if (!['lesson', 'intro'].includes(this.step.kind)) throw new GameError('게임이 시작된 뒤에는 모둠을 바꿀 수 없습니다. 선생님께 말씀해 주세요.');
     this.release(teamId);
   }
 
@@ -218,6 +236,7 @@ export class GameEngine {
     if (!t) throw new GameError('없는 기업입니다.');
     t.tokenHash = null;
     t.virtual = false;
+    t.group = null;
     t.claimedAt = null;
     this.log(`${companyName(t.id)} 연결 해제`);
   }
@@ -706,10 +725,25 @@ export class GameEngine {
   }
 
   companiesPublic(conns) {
+    const revealed = this.companiesRevealed();
     return COMPANIES.map((c) => {
       const t = this.state.teams[c.id];
-      return { id: c.id, name: c.name, color: c.color, claimed: !!t.tokenHash, connected: (conns[c.id] || 0) > 0 || t.virtual };
+      return {
+        id: c.id, name: c.name, color: c.color, claimed: !!t.tokenHash, connected: (conns[c.id] || 0) > 0 || t.virtual,
+        group: revealed ? t.group ?? null : null,
+      };
     });
+  }
+
+  // 모둠 ↔ 기업 배정은 INTRO(기업 선택 · 접속 확인)부터 공개. 도입 슬라이드 동안에는 학생도 TV 도 모둠 번호만 앎
+  companiesRevealed() {
+    return this.step.index >= STEP_BY_ID.INTRO.index;
+  }
+
+  // 학생 첫 화면의 모둠 선택 버튼 (테스트용 가상 접속은 실제 모둠이 이어받을 수 있으므로 빈 것으로 표시)
+  groupsPublic() {
+    const taken = new Set(Object.values(this.state.teams).filter((t) => t.tokenHash && !t.virtual && t.group).map((t) => t.group));
+    return TEAM_IDS.map((_, i) => ({ no: i + 1, claimed: taken.has(i + 1) }));
   }
 
   submittedCount() {
@@ -817,13 +851,14 @@ export class GameEngine {
     if (st.kind === 'closing') v.closing = CLOSING_TEXT;
     if (st.kind === 'lesson') v.lesson = this.lessonPublic(st);
     if (st.kind === 'concept') v.concept = CONCEPT[st.slide];
+    if (st.slide === 'act2Ask') v.standings = this.standingsPublic(4); // 활동 2 발문 왼쪽: 실제 최종 이윤·순위
     return v;
   }
 
   // 도입 슬라이드 내용. 퀴즈의 초성 힌트·정답은 그 단계가 공개되었을 때만 보냄.
   lessonPublic(st) {
     const c = LESSON[st.slide];
-    if (!st.quiz) return st.slide === 'companies' ? { ...c, companies: COMPANIES } : c;
+    if (!st.quiz) return ['companies', 'wait'].includes(st.slide) ? { ...c, companies: COMPANIES } : c;
     const revealed = this.state.revealIndex >= 1;
     const { answer, formula, hints, answers, ...rest } = c;
     const out = { ...rest, phase: this.quizPhase(st), revealed, hint: this.hintShown(st) };
@@ -839,12 +874,16 @@ export class GameEngine {
   teamView(teamId, conns = {}, { tokenRejected = false } = {}) {
     const s = this.state;
     const st = this.step;
-    const v = { ...this.base('play'), companies: this.companiesPublic(conns), totalTeams: TOTAL, tokenRejected };
-    if (!teamId) return { ...v, me: null };
+    const v = { ...this.base('play'), totalTeams: TOTAL, tokenRejected };
+    if (!teamId) return { ...v, me: null, groups: this.groupsPublic() };
     const t = s.teams[teamId];
     const standing = s.standings?.find((x) => x.teamId === teamId);
+    const revealed = this.companiesRevealed();
+    const groupName = t.group ? `${t.group}모둠` : '우리 모둠';
     v.me = {
-      id: teamId, name: companyName(teamId), color: colorOf(teamId),
+      group: t.group ?? null, groupName, revealed,
+      // 배정 공개 전에는 어떤 기업인지 보내지 않음
+      ...(revealed ? { id: teamId, name: companyName(teamId), color: colorOf(teamId) } : { id: null, name: groupName, color: null }),
       cash: t.cash, revenueTotal: t.revenueTotal, profit: t.cash - C.STARTING_CASH,
       rank: standing?.rank ?? null, connections: conns[teamId] || 0,
     };
@@ -944,7 +983,7 @@ export class GameEngine {
         const t = s.teams[id];
         const standing = s.standings?.find((x) => x.teamId === id);
         return {
-          id, name: companyName(id), color: colorOf(id),
+          id, name: companyName(id), color: colorOf(id), group: t.group ?? null,
           claimed: !!t.tokenHash, virtual: t.virtual, connections: conns[id] || 0,
           cash: t.cash, revenueTotal: t.revenueTotal, unitsTotal: t.unitsTotal,
           profit: t.cash - C.STARTING_CASH, rank: standing?.rank ?? null,
@@ -970,10 +1009,13 @@ export class GameEngine {
 
   // ── 테스트 패널 ──────────────────────────────────────────────────
   testAutoJoin() {
+    const used = new Set(Object.values(this.state.teams).map((t) => t.group).filter(Boolean));
+    const free = TEAM_IDS.map((_, i) => i + 1).filter((g) => !used.has(g)).sort(() => Math.random() - 0.5);
     for (const id of TEAM_IDS) {
       const t = this.state.teams[id];
       if (!t.tokenHash) {
         t.tokenHash = `virtual-${crypto.randomBytes(8).toString('hex')}`;
+        t.group = free.shift() ?? null;
         t.virtual = true;
         t.claimedAt = Date.now();
       }

@@ -1,7 +1,7 @@
 // 게임 엔진 단위 테스트: node scripts/engine-test.js
 import assert from 'node:assert/strict';
 import { GameEngine, STEPS } from '../src/engine.js';
-import { TEAM_IDS } from '../src/content.js';
+import { TEAM_IDS, companyName } from '../src/content.js';
 import { GAME_CONFIG as C } from '../src/config.js';
 
 let passed = 0;
@@ -316,6 +316,41 @@ test('초기화: 새 세션 · 접속 유지 옵션', () => {
   assert.equal(g.teamIdByToken(token), null);
 });
 
+test('모둠 번호로 접속 → 기업 무작위 배정 · 활동 1 기업 선택 화면부터 공개', () => {
+  const g = new GameEngine();
+  g.goto('LESSON_COUNTRY');
+  const tokens = [1, 2, 3, 4, 5].map((n) => g.claimGroup(n));
+  const ids = tokens.map((t) => g.teamIdByToken(t));
+  assert.deepEqual([...ids].sort(), [1, 2, 3, 4, 5], '모둠마다 다른 기업');
+  assert.throws(() => g.claimGroup(3), (e) => e.status === 409, '같은 모둠 번호는 한 번만');
+  assert.throws(() => g.claimGroup(6), (e) => e.status === 400);
+  const pre = g.teamView(ids[0]);
+  assert.equal(pre.me.id, null);
+  assert.equal(pre.me.name, '1모둠');
+  assert.ok(!JSON.stringify(pre).includes(companyName(ids[0])), '도입 중에는 기업 이름을 보내지 않음');
+  assert.ok(g.displayView().companies.every((c) => c.group === null), 'TV 도 공개 전에는 모둠 표시 없음');
+  // 잘못 고른 모둠은 다시 고르기
+  g.leave(ids[0]);
+  assert.equal(g.state.teams[ids[0]].group, null);
+  assert.deepEqual(g.teamView(null).groups.find((x) => x.no === 1), { no: 1, claimed: false });
+  const t1 = g.claimGroup(1);
+  goto(g, 'INTRO');
+  const v = g.teamView(g.teamIdByToken(t1));
+  assert.equal(v.me.revealed, true);
+  assert.equal(v.me.name, companyName(v.me.id));
+  assert.equal(g.displayView().companies.find((c) => c.id === v.me.id).group, 1);
+});
+
+test('테스트 자동 접속 기업도 모둠 번호를 받고, 실제 모둠이 들어오면 이어받음', () => {
+  const g = new GameEngine();
+  g.claimGroup(2);
+  g.testAutoJoin();
+  assert.deepEqual(Object.values(g.state.teams).map((t) => t.group).sort(), [1, 2, 3, 4, 5]);
+  const vid = Object.values(g.state.teams).find((t) => t.group === 4).id;
+  assert.equal(g.teamIdByToken(g.claimGroup(4)), vid);
+  assert.equal(g.state.teams[vid].virtual, false);
+});
+
 test('이미 선택된 기업은 다른 노트북이 가져갈 수 없음', () => {
   const g = new GameEngine();
   g.claim(2);
@@ -546,9 +581,8 @@ test('담합: 활동 1(학생·TV)에는 용어 없음 → 공정 경쟁 뉴스�
   const n = g.displayView(conns).news;
   assert.equal(n.headline, '슬랑이 기업들, 가격 함께 올려… 소비자 부담 커져');
   assert.equal(n.lines[0], '말랑컴퍼니, 몽글기업, 쫀득상사 3곳이 약속하여 슬랑이 가격을 30,000원 이상으로 함께 올린 사실이 알려졌습니다.');
-  assert.equal(n.lines.length, 3);
-  assert.match(n.lines[1], /기업들이 서로 짜고 가격이나 거래 조건을 정하는 것을 ‘담합’이라고/);
-  assert.match(n.lines[2], /^담합이 이루어지면 소비자는 더 비싼 가격에 상품을 사게 되고, 공정한 경쟁도 어려워집니다/);
+  assert.equal(n.lines.length, 2);
+  assert.match(n.lines[1], /기업들이 서로 짜고 가격이나 거래 조건을 정하는 것을 ‘담합’이라고 합니다\. 담합이 이루어지면 소비자는 더 비싼 가격에 상품을 사게 되고, 공정한 경쟁도 어려워집니다/);
   assert.deepEqual(n.concept, { term: '담합', desc: '기업들이 서로 짜고 가격이나 거래 조건을 정하는 것' });
   assert.deepEqual(n.companies.map((c) => c.id), [1, 3, 4]);
   // 5곳 모두 참여

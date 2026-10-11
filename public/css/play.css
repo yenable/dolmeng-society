@@ -46,6 +46,15 @@ h1 { font-size: 34px; margin: 0 0 10px; letter-spacing: -0.02em; }
 .company-btn small { font-size: 14px; color: var(--muted); font-weight: 600; min-height: 1.2em; }
 .company-btn:hover:not(:disabled) { border-color: var(--c); transform: translateY(-3px); }
 .company-btn:disabled { opacity: .45; }
+.group-btn { --c: var(--accent, #ff5a2e); gap: 6px; }
+.group-btn .group-no { font-size: 52px; line-height: 1; color: var(--c); }
+
+/* 활동 1 '기업 선택 · 접속 확인': 무작위로 배정된 기업 공개 */
+.reveal-co {
+  display: inline-flex; align-items: center; gap: 14px; margin: 6px auto 4px; padding: 14px 26px;
+  border: 3px solid var(--c); border-radius: 20px; background: var(--panel); font-size: 32px; font-weight: 900;
+}
+.reveal-co .blob { width: 52px; height: 46px; border-radius: 50% 50% 46% 54% / 60% 58% 42% 40%; background: var(--c); }
 
 /* ── 라운드 ─────────────────────────────── */
 .round-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
@@ -148,13 +157,15 @@ h1 { font-size: 34px; margin: 0 0 10px; letter-spacing: -0.02em; }
 .final-list .fr .rk { width: 52px; font-weight: 800; }
 .final-list .fr .nm { flex: 1; }
 
-/* 사회 영향 공개 동안 */
-body.play.dim { background: #17181c; }
+/* 사회 영향 공개·마무리 동안: 글자색 변수를 밝게 바꿔 어두운 배경에서도 읽히게 */
+body.play.dim { background: #17181c; --ink: #f1f2f4; --ink-2: #d4d6db; --muted: #a3a6ae; --line: #3a3c43; --panel: #232429; color: var(--ink); }
 body.play.dim .hud { opacity: .25; pointer-events: none; }
-.tv-note { color: #e6e6e9; margin-top: 22vh; }
+body.play.dim .stat.profit { background: #000; }
+/* 'TV 화면을 함께 봐요': 밝은 단계에서도, 어두운 단계에서도 배경과 대비되는 색 */
+.tv-note { color: var(--ink); margin-top: 22vh; }
 .tv-note .tv { font-size: 64px; }
-.tv-note h1 { color: #fff; }
-.tv-note p { color: #9a9ca3; font-size: 20px; }
+.tv-note h1 { color: var(--ink); }
+.tv-note p { color: var(--muted); font-size: 20px; }
 
 /* 정리 */
 .decisions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 20px; }

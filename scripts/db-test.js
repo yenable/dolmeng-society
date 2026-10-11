@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { startDevServer } from './dev-server.js';
-import { runFlow, PIN, client } from './lib/flow.js';
+import { runFlow, PIN, client, claimAll } from './lib/flow.js';
 
 process.env.ADMIN_PIN = PIN;
 const { SupabaseStore } = await import('../src/store.js');
@@ -71,8 +71,7 @@ try {
   // 마지막 초기화 이전(보관된) 세션에서 한 판 기록이 정규화 테이블에 정확히 남았는지 확인
   const c = client(base);
   await c.admin('reset', { keepClaims: false });
-  const tokens = {};
-  for (const id of [1, 2, 3, 4, 5]) tokens[id] = (await c.post('/api/play/claim', { teamId: id })).body.token;
+  const tokens = await claimAll(c);
   await c.admin('testAutoComplete', { scenario: 'profitFirst' });
   // 결과 단계를 오가며 여러 번 눌러도 기록은 그대로
   await c.admin('goto', { stepId: 'ROUND4_RESULT' });

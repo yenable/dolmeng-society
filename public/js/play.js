@@ -56,7 +56,7 @@ function onState(v) {
     reconnecting = false;
     storage.del(TOKEN_KEY);
     storage.del(NAME_KEY);
-    toast('기업 연결이 초기화되었어요. 기업을 다시 선택해 주세요.', { ms: 4500 });
+    toast('모둠 연결이 초기화되었어요. 모둠을 다시 선택해 주세요.', { ms: 4500 });
     screenKey = '';
     live.refresh();
     return;
@@ -99,7 +99,7 @@ function render() {
   renderHud(v);
   const key = [
     v.sessionId, v.me?.id ?? '-', v.step.kind === 'lesson' ? 'INTRO' : v.step.id, v.canSubmit, !!v.mySubmission, v.roundComputed, !!v.myResult,
-    v.reflection?.canReflect, !!v.reflection?.mine, v.canSubmit ? v.me.cash : '', v.me ? '' : JSON.stringify(v.companies),
+    v.reflection?.canReflect, !!v.reflection?.mine, v.canSubmit ? v.me.cash : '', v.me ? v.me.group : JSON.stringify(v.groups),
   ].join('|');
   if (key === screenKey) {
     $$('[data-live="submitted"]').forEach((el) => { el.textContent = v.submittedCount; });
@@ -134,11 +134,11 @@ function renderHud(v) {
   const m = v.me;
   const profitCls = m.profit > 0 ? 'pos' : m.profit < 0 ? 'neg' : '';
   const rank = m.rank ? `${medal(m.rank)} ${m.rank}위` : '';
-  if (!$('.hud-inner', hud) || hud.dataset.team !== String(m.id)) {
-    hud.dataset.team = m.id;
+  if (!$('.hud-inner', hud) || hud.dataset.team !== `${m.id}-${m.group}`) {
+    hud.dataset.team = `${m.id}-${m.group}`;
     hud.innerHTML = `
       <div class="hud-inner">
-        <div class="brand"><span class="dot" style="--c:${m.color}"></span>${esc(m.name)}</div>
+        <div class="brand"><span class="dot" style="--c:${m.color ?? 'var(--line)'}"></span>${esc(m.revealed && m.group ? `${m.groupName} · ${m.name}` : m.name)}</div>
         <div class="stat"><span class="k">현재 가진 돈</span><span class="v num" id="h-cash"></span></div>
         <div class="stat"><span class="k">지금까지 슬랑이를 판 돈</span><span class="v num" id="h-rev"></span></div>
         <div class="stat profit"><span class="k">이윤 <em id="h-rank"></em></span><span class="v num" id="h-profit"></span></div>
@@ -162,31 +162,31 @@ function renderHud(v) {
   hudPrev = { '#h-cash': m.cash, '#h-rev': m.revenueTotal, '#h-profit': m.profit };
 }
 
+// 모둠 번호만 고름 → 기업은 서버가 무작위로 배정하고, 활동 1 '기업 선택 · 접속 확인'에서 공개
 function renderSelect(v) {
   main.innerHTML = `
     <section class="center-wrap fade-up">
       <p class="eyebrow">돌멩민국 슬랑이 시장</p>
-      <h1>우리 모둠의 기업을 골라 주세요</h1>
-      <p class="lead">한 모둠은 하나의 기업만 선택할 수 있어요.</p>
+      <h1>우리는 몇 모둠인가요?</h1>
+      <p class="lead">우리 모둠 번호를 눌러 주세요. 우리 모둠이 맡을 기업은 활동 1에서 무작위로 정해져요.</p>
       <div class="company-grid">
-        ${v.companies.map((c) => `
-          <button class="company-btn" data-team="${c.id}" style="--c:${c.color}" ${c.claimed ? 'disabled' : ''}>
-            <span class="blob"></span>${esc(c.name)}<small>${c.claimed ? '이미 선택됨' : ''}</small>
+        ${v.groups.map((g) => `
+          <button class="company-btn group-btn" data-group="${g.no}" ${g.claimed ? 'disabled' : ''}>
+            <span class="group-no num">${g.no}</span>모둠<small>${g.claimed ? '이미 접속함' : ''}</small>
           </button>`).join('')}
       </div>
     </section>`;
-  $$('.company-btn', main).forEach((b) => b.addEventListener('click', () => claim(Number(b.dataset.team))));
+  $$('.group-btn', main).forEach((b) => b.addEventListener('click', () => claim(Number(b.dataset.group))));
 }
 
-async function claim(teamId) {
-  const c = view.companies.find((x) => x.id === teamId);
-  if (busy || !confirm(`우리 모둠은 '${c.name}'입니다.\n이 기업으로 시작할까요?`)) return;
+async function claim(group) {
+  if (busy || !confirm(`우리는 ${group}모둠입니다.\n${group}모둠으로 접속할까요?`)) return;
   busy = true;
   try {
-    const r = await api('/api/play/claim', { teamId });
+    const r = await api('/api/play/claim', { group });
     token = r.token;
     storage.set(TOKEN_KEY, token);
-    storage.set(NAME_KEY, c.name);
+    storage.set(NAME_KEY, `${group}모둠`);
     screenKey = '';
     if (r.view) onState(r.view);
     live.refresh();
@@ -198,16 +198,24 @@ async function claim(teamId) {
 }
 
 function renderIntro(v) {
-  main.innerHTML = `
+  const m = v.me;
+  main.innerHTML = m.revealed ? `
+    <section class="center-wrap fade-up">
+      <p class="eyebrow">${esc(m.groupName)}의 기업은…</p>
+      <div class="reveal-co pop" style="--c:${m.color}"><span class="blob"></span>${esc(m.name)}</div>
+      <h1>${esc(m.name)} 대표님, 환영합니다!</h1>
+      <p class="lead">우리 기업의 목표는 <b>이윤을 높이는 것</b>입니다.<br>선생님이 시작하면 첫 번째 결정을 내리게 됩니다.</p>
+      <p class="wait">시작 자금 <b>${won(m.cash)}</b></p>
+      <button class="small-link" id="leave">우리 모둠 번호가 아니에요 (모둠 다시 고르기)</button>
+    </section>` : `
     <section class="center-wrap fade-up">
       <p class="eyebrow">돌멩민국 슬랑이 시장</p>
-      <h1>${esc(v.me.name)} 대표님, 환영합니다!</h1>
-      <p class="lead">우리 기업의 목표는 <b>이윤을 높이는 것</b>입니다.<br>선생님이 시작하면 첫 번째 결정을 내리게 됩니다.</p>
-      <p class="wait">시작 자금 <b>${won(v.me.cash)}</b></p>
-      <button class="small-link" id="leave">우리 기업이 아니에요 (다시 고르기)</button>
+      <h1>${esc(m.groupName)}, 접속 완료!</h1>
+      <p class="lead">우리 모둠이 맡을 기업은 <b>활동 1을 시작할 때</b> 무작위로 정해져요.<br>TV 화면을 보며 선생님의 안내를 기다려 주세요.</p>
+      <button class="small-link" id="leave">우리 모둠 번호가 아니에요 (모둠 다시 고르기)</button>
     </section>`;
   $('#leave').addEventListener('click', async () => {
-    if (!confirm('기업 선택을 취소하고 다시 고를까요?')) return;
+    if (!confirm(`${m.groupName} 접속을 취소하고 모둠을 다시 고를까요?`)) return;
     try {
       await api('/api/play/leave', { token });
       token = '';

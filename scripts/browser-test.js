@@ -57,35 +57,42 @@ try {
   console.log(`브라우저 테스트 (${path.basename(BROWSER)})`);
   await c.post('/api/admin/login', {}, { 'x-admin-pin': PIN });
 
-  // ── 1. 학생: 기업 선택 → 2라운드 → 이유 일부 입력 → 새로고침 ──────────
+  // ── 1. 학생: 모둠 선택 → 기업 공개 → 2라운드 → 이유 일부 입력 → 새로고침 ──────────
   let page = await browser.newPage();
   page.on('dialog', (d) => d.accept());
   await page.goto(`${BASE}/`);
-  await page.waitForSelector('.company-btn[data-team="1"]');
-  assert.ok((await page.content()).includes('우리 모둠의 기업을 골라 주세요'));
-  await page.click('.company-btn[data-team="1"]');
+  await page.waitForSelector('.group-btn[data-group="1"]');
+  assert.ok((await page.content()).includes('우리는 몇 모둠인가요?'));
+  await page.click('.group-btn[data-group="1"]');
   await page.waitForSelector('#hud .brand');
-  assert.match(await page.$eval('#hud .brand', (e) => e.textContent), /말랑컴퍼니/);
-  for (const id of [2, 3, 4, 5]) await c.post('/api/play/claim', { teamId: id });
+  assert.match(await page.$eval('#hud .brand', (e) => e.textContent), /1모둠/);
+  for (const g of [2, 3, 4, 5]) await c.post('/api/play/claim', { group: g });
+  const mine = (await c.adminState()).teams.find((t) => t.group === 1);
+  const ME = new RegExp(mine.name);
+  assert.ok(!(await page.content()).includes(mine.name), '도입 중에는 배정된 기업이 학생 화면에 보이지 않음');
+  await c.admin('goto', { stepId: 'INTRO' });
+  await page.waitForSelector('.reveal-co', { timeout: 8000 });
+  assert.match(await page.$eval('.reveal-co', (e) => e.textContent), ME);
+  ok(`모둠 번호 선택 → 활동 1 기업 선택 화면에서 무작위 배정 기업 공개 (1모둠 = ${mine.name})`);
   await c.admin('goto', { stepId: 'ROUND1_MEETING' });
   await page.waitForSelector('#opts .opt', { timeout: 8000 });
   await page.click('#opts .opt[data-value="10000"]');
   await page.type('#reason', '많이 팔 수 있을 것 같기');
   await page.click('#submit');
-  await until(async () => (await c.adminState()).submissions[1][1], 8000, '1라운드 제출');
+  await until(async () => (await c.adminState()).submissions[1][mine.id], 8000, '1라운드 제출');
   await c.admin('testAutoSubmit', { scenario: 'random' });
   await c.admin('goto', { stepId: 'ROUND1_RANK' });
   await c.admin('goto', { stepId: 'ROUND2_MEETING' });
   await page.waitForSelector('#opts .opt[data-value="exaggerated"]', { timeout: 8000 });
   await page.click('#opts .opt[data-value="exaggerated"]');
   await page.type('#reason', '적은 비용으로 많이');
-  const cashBefore = (await c.adminState()).teams[0].cash;
-  const rankBefore = (await c.adminState()).teams[0].rank;
+  const cashBefore = (await c.adminState()).teams.find((t) => t.id === mine.id).cash;
+  const rankBefore = (await c.adminState()).teams.find((t) => t.id === mine.id).rank;
   await page.reload();
   await page.waitForSelector('#reason', { timeout: 8000 });
   assert.equal(await page.$eval('#reason', (e) => e.value), '적은 비용으로 많이');
   assert.equal(await page.$eval('#opts .opt[data-value="exaggerated"]', (e) => e.getAttribute('aria-pressed')), 'true');
-  assert.match(await page.$eval('#hud .brand', (e) => e.textContent), /말랑컴퍼니/);
+  assert.match(await page.$eval('#hud .brand', (e) => e.textContent), ME);
   assert.equal(await page.$eval('#h-cash', (e) => e.textContent), `${cashBefore.toLocaleString('ko-KR')}원`);
   assert.match(await page.$eval('#h-rank', (e) => e.textContent), new RegExp(`${rankBefore}위`));
   ok('새로고침: 같은 기업 자동 복귀 · 입력 중이던 이유/선택 복구 · 돈/순위 유지');
@@ -98,7 +105,7 @@ try {
   assert.ok(await page.evaluate(() => !!localStorage.getItem('slangi.token')), '오프라인 중에도 토큰 유지');
   await page.setOfflineMode(false);
   await until(() => page.$eval('#linkstate', (e) => e.textContent.includes('다시 연결되었습니다')), 10000, '복구 표시');
-  assert.match(await page.$eval('#hud .brand', (e) => e.textContent), /말랑컴퍼니/);
+  assert.match(await page.$eval('#hud .brand', (e) => e.textContent), ME);
   assert.equal(await page.$eval('#reason', (e) => e.value), '적은 비용으로 많이');
   await until(() => page.$eval('#linkstate', (e) => e.textContent === '● 연결됨'), 10000, '복구 표시 후 "연결됨"으로 돌아옴');
   ok('네트워크 끊김 → "다시 연결하는 중…" → "다시 연결되었습니다." · 토큰·기업·draft 유지');
@@ -111,7 +118,7 @@ try {
   page.off('request', fail);
   await page.setRequestInterception(false);
   assert.ok(await page.evaluate(() => !!localStorage.getItem('slangi.token')));
-  await until(async () => (await page.$eval('#hud .brand', (e) => e.textContent)).includes('말랑컴퍼니'), 8000, '복구');
+  await until(async () => (await page.$eval('#hud .brand', (e) => e.textContent)).includes(mine.name), 8000, '복구');
   ok('서버가 잠시 503 을 내도 기업 선택 화면으로 튕기지 않음');
 
   // ── 3. 브라우저 종료 후 다시 / 접속 ────────────────────────────────
@@ -122,16 +129,16 @@ try {
   await page.goto(`${BASE}/`);
   const first = await page.$eval('#main', (e) => e.textContent);
   await page.waitForSelector('#reason', { timeout: 8000 });
-  assert.match(await page.$eval('#hud .brand', (e) => e.textContent), /말랑컴퍼니/);
+  assert.match(await page.$eval('#hud .brand', (e) => e.textContent), ME);
   assert.equal(await page.$eval('#reason', (e) => e.value), '적은 비용으로 많이');
   ok(`브라우저를 닫았다 다시 열어도 같은 기업 자동 복귀 (첫 화면: "${first.trim().slice(0, 30)}")`);
 
   // 교사 연결 해제 = 진짜 무효 → 그때만 기업 선택 화면
-  await c.admin('release', { teamId: 1 });
-  await page.waitForSelector('.company-btn', { timeout: 8000 });
+  await c.admin('release', { teamId: mine.id });
+  await page.waitForSelector('.group-btn', { timeout: 8000 });
   assert.equal(await page.evaluate(() => localStorage.getItem('slangi.token')), null);
-  await page.click('.company-btn[data-team="1"]');
-  await page.waitForSelector('#hud .brand');
+  await page.click('.group-btn[data-group="1"]');
+  await until(async () => (await page.$eval('#hud .brand', (e) => e.textContent)).includes(mine.name), 8000, '같은 기업 복귀');
   ok('교사가 연결 해제했을 때만 토큰 삭제 → 다시 선택하면 기록 그대로 이어서');
 
   // ── 4. 교사 콘솔 / TV 새로고침 ───────────────────────────────────────
@@ -617,7 +624,7 @@ try {
   await tv.bringToFront();
   await tv.setViewport({ width: 1600, height: 900 });
   await tv.waitForSelector('.lz-s-wait');
-  assert.match(await tv.$eval('#stage', (e) => e.textContent), /2\. 시장경제와 국가 간 거래[\s\S]*오늘은 기업을 직접 경영해봅니다[\s\S]*모둠별로 앉아 수업을 준비해주세요/);
+  assert.match(await tv.$eval('#stage', (e) => e.textContent), /2\. 시장경제와 국가 간 거래[\s\S]*6차시[\s\S]*기업의 자유와 책임[\s\S]*돌멩민국 사업 시뮬레이션[\s\S]*모둠별로 앉아 수업을 준비해주세요/);
   await shot('01-wait');
   // 수업 시작 → 첫 본문은 돌멩민국 (동기유발 문구 없음)
   await press(tv, 'ArrowRight', 'LESSON_COUNTRY:-');

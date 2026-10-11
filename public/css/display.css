@@ -162,13 +162,17 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .news .cat { color: #e3a33b; }
 .news h1 { white-space: pre-line; font-size: calc(6.4rem * var(--nz)); font-weight: 900; letter-spacing: -0.03em; margin: calc(1.6rem * var(--nz)) 0 calc(2.4rem * var(--nz)); line-height: 1.15; color: #fff; animation: fadeUp .8s .3s ease both; border-left: 1rem solid #c7353b; padding-left: 2.4rem; }
 .news .lines p { font-size: calc(2.5rem * var(--nz)); line-height: 1.6; margin: 0 0 calc(1.2rem * var(--nz)); color: #d3d4d8; font-weight: 500; }
-.news .chips { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: calc(1.4rem * var(--nz)); }
+/* 제목·본문·기업이 눌려 겹치지 않게 (넘치면 fitNews 가 글자 크기를 줄임) */
+.news > * { flex-shrink: 0; }
+.news .chips { display: flex; align-items: center; gap: calc(1.6rem * var(--nz)); flex-wrap: nowrap; margin-top: calc(1.4rem * var(--nz)); overflow: hidden; }
+.news .chip-group { display: flex; align-items: center; gap: calc(.7rem * var(--nz)); flex: none; }
+.news .chip-group > small { color: #8d9097; font-size: calc(1.5rem * var(--nz)); font-weight: 700; margin-right: .2rem; white-space: nowrap; }
 /* 기사 내용·관련 기업: 제목 타이핑이 끝나고 잠시 뒤 .show 가 붙으면 자동으로 차례로 등장 */
 #news-detail .lines p, #news-detail .chips { opacity: 0; }
 #news-detail.show .lines p { animation: fadeUp .8s ease both; }
 #news-detail.show .chips { animation: fadeIn .9s ease both; }
 #news-detail.instant .lines p, #news-detail.instant .chips { animation: none; opacity: 1; }
-.news .chip { background: #1d1e22; border: .15rem solid #34363c; border-radius: 99rem; padding: .6rem 1.4rem; font-size: calc(1.6rem * var(--nz)); font-weight: 700; display: flex; align-items: center; gap: .7rem; }
+.news .chip { background: #1d1e22; border: .15rem solid #34363c; border-radius: 99rem; padding: calc(.55rem * var(--nz)) calc(1.3rem * var(--nz)); font-size: calc(1.6rem * var(--nz)); font-weight: 700; display: flex; align-items: center; gap: .7rem; white-space: nowrap; flex: none; }
 .news .chip small { color: #8d9097; font-weight: 600; }
 /* 하단 속보 티커: 화면 오른쪽 바깥 → 왼쪽 바깥까지 일정한 속도로 한 줄 이동, 끝나면 다시 오른쪽에서.
    같은 뉴스 화면에서는 DOM 을 다시 만들지 않으므로(display.js) 상태 갱신이 들어와도 처음부터 다시 시작되지 않음 */
@@ -298,7 +302,18 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .lz-title.md { font-size: 4.2rem; margin-bottom: 3rem; }
 .lz-title.xl { font-size: 6.6rem; margin: 0; }
 .lz-title.left { text-align: left; }
-.lz-cover { font-size: 6.4rem; margin: 0; }
+/* 1슬라이드 수업 표지: 단원·차시는 위에 작게, 수업 제목을 가장 크게 */
+.lz-cover { font-size: 7.4rem; margin: 0; letter-spacing: -0.045em; white-space: nowrap; }
+.lz-cover-meta {
+  display: flex; align-items: center; gap: 1.6rem; margin-bottom: 2.6rem;
+  font-size: 2.1rem; font-weight: 700; color: var(--muted);
+}
+.lz-cover-meta i { width: .4rem; height: 2.2rem; border-radius: 1rem; background: var(--line); }
+.lz-cover-meta b { color: var(--accent); font-weight: 900; margin-right: .3rem; }
+.lz-cover-slangis { display: flex; gap: 2.2rem; margin-top: 4.2rem; }
+.lz-cover-slangis span { display: block; width: 9rem; animation: slangiHop 2.4s ease-in-out infinite; }
+.lz-cover-slangis .slangi { width: 100%; height: auto; display: block; }
+@keyframes slangiHop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-1.2rem); } 60% { transform: translateY(0); } }
 .lz-badge { display: inline-block; font-size: 1.9rem; font-weight: 900; color: var(--accent); letter-spacing: .06em; margin-bottom: 1.4rem; }
 .lz-lines { font-size: 2.9rem; line-height: 1.6; font-weight: 600; color: var(--ink-2); }
 .lz-lines p { margin: 0; }
@@ -390,6 +405,19 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 /* 활동 2 도입 발문: 질문만 크게 (PPT 질문 슬라이드) */
 .cz-a2q { font-size: 6.4rem; line-height: 1.38; }
 .cz-a2sub { margin: 4.4rem 0 0; padding-top: 2.6rem; border-top: .3rem solid #2f7bf0; font-size: 3rem; font-weight: 800; color: var(--ink-2); }
+/* 활동 2 발문: 왼쪽 실제 이윤·순위 + 오른쪽 발문 */
+.cz-a2 { flex: 1; min-height: 0; display: grid; grid-template-columns: 44fr 56fr; gap: 5rem; align-items: center; padding: 0 4rem; }
+.cz-a2-board { background: #fff; border: .2rem solid var(--line); border-radius: 2rem; padding: 2.4rem 2.6rem; box-shadow: 0 1rem 3rem rgba(0,0,0,.05); }
+.cz-a2-head { font-size: 2rem; font-weight: 900; color: var(--muted); letter-spacing: .04em; margin-bottom: 1.4rem; }
+.cz-a2-row { display: grid; grid-template-columns: 8.4rem 1fr auto; align-items: center; gap: 1.2rem; padding: 1.5rem .4rem; border-top: .15rem solid var(--line); font-size: 2.5rem; font-weight: 800; }
+.cz-a2-row .rk { font-weight: 900; white-space: nowrap; }
+.cz-a2-row .nm { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+.cz-a2-row .nm i { flex: none; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--c); }
+.cz-a2-row .pf { font-weight: 900; white-space: nowrap; }
+.cz-a2-row.top { font-size: 2.9rem; background: color-mix(in srgb, var(--c) 10%, transparent); border-radius: 1.2rem; border-top-color: transparent; padding-left: 1rem; padding-right: 1rem; }
+.cz-a2-ask { text-align: left; }
+.cz-a2-ask .cz-a2q { font-size: 4.8rem; }
+.cz-a2-ask .cz-a2sub { display: inline-block; margin-top: 3.4rem; font-size: 2.6rem; }
 .cz-q { font-size: 5.2rem; }
 .cz-s-csrAsk .lz-badge { font-size: 2.6rem; color: #2f7bf0; margin-bottom: 2.6rem; }
 .cz-csr-title { font-size: 5rem; margin-bottom: 1.6rem; }
@@ -424,3 +452,8 @@ body.display.dark .topbar .pill { background: #2a2c31; color: #c7c9ce; }
 .topbar .tb-right { display: flex; align-items: center; gap: 1rem; }
 .tv-timer { font-size: 1.9rem; }
 body.display.special .tv-timer:not(.low):not(.over):not(.paused) { background: #f2c14e; color: #15132b; }
+.lz.fresh .cz-a2 > * { animation: fadeUp .55s ease both; }
+.lz.fresh .cz-a2 > :nth-child(2) { animation-delay: .25s; }
+/* 뉴스 본문: 해당 기업 이름 굵게 · 소비자 인터뷰 노란색 */
+.news .lines b.co { color: #fff; font-weight: 900; }
+.news .lines .quote { color: #ffd84d; font-weight: 700; }

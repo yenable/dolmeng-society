@@ -179,7 +179,11 @@ function blankHtml(L, i) {
 
 const LESSON_SLIDES = {
   wait: (L) => `
-    <div class="center"><h1 class="lz-title lz-cover">${esc(L.title)}</h1></div>
+    <div class="center lz-cover-wrap">
+      <div class="lz-cover-meta"><span>${esc(L.unit)}</span><i></i><span><b>${esc(L.lessonNo)}</b> ${esc(L.lessonTitle)}</span></div>
+      <h1 class="lz-title lz-cover">${esc(L.title)}</h1>
+      <div class="lz-cover-slangis">${(L.companies ?? []).map((c, i) => `<span style="animation-delay:${i * 0.18}s">${slangiSvg(c.color)}</span>`).join('')}</div>
+    </div>
     <p class="lz-foot">${esc(L.foot)}</p>`,
 
   testStart: (L) => `
@@ -292,11 +296,24 @@ const CONCEPT_SLIDES = {
     </div>`,
 
   // 활동 2 도입 발문: PPT 질문 슬라이드처럼 발문만 크게 + 아래 보조 발문
-  act2Ask: (L) => `
-    <div class="center">
-      ${lines(L.ask, 'lz-bigq cz-a2q')}
-      <p class="cz-a2sub">${esc(L.sub)}</p>
-    </div>`,
+  // 왼쪽: 실제 게임 최종 이윤·순위 / 오른쪽: 발문 (결과가 아직 없으면 발문만 가운데)
+  act2Ask: (L, v) => {
+    const ask = `${lines(L.ask, 'lz-bigq cz-a2q')}<p class="cz-a2sub">${esc(L.sub)}</p>`;
+    if (!v.standings?.length) return `<div class="center">${ask}</div>`;
+    return `
+      <div class="cz-a2">
+        <div class="cz-a2-board">
+          <div class="cz-a2-head">최종 이윤 순위</div>
+          ${v.standings.map((x) => `
+            <div class="cz-a2-row ${x.rank === 1 ? 'top' : ''}" style="--c:${x.color}">
+              <span class="rk">${medal(x.rank) || ''}${x.rank}위</span>
+              <span class="nm"><i></i>${esc(x.name)}</span>
+              <span class="pf num ${x.profit >= 0 ? 'pos' : 'neg'}">${signedWon(x.profit)}</span>
+            </div>`).join('')}
+        </div>
+        <div class="cz-a2-ask">${ask}</div>
+      </div>`;
+  },
 
   csrAsk: (L) => `
     <div class="center">
@@ -330,7 +347,7 @@ const RENDER = {
       ${topbar(v)}
       <div class="center">
         <h1 class="intro-title fade-up">돌멩민국 슬랑이 시장</h1>
-        <p class="intro-sub fade-up">5개 기업의 대표가 되어 우리 기업의 이윤을 높여 보세요!</p>
+        <p class="intro-sub fade-up">무작위로 정해진 우리 모둠의 기업을 확인하고, 기업의 이윤을 높여 보세요!</p>
         <div class="company-row" id="companies"></div>
       </div>`;
   },
@@ -528,9 +545,9 @@ const RENDER = {
         <div class="tagline"><span class="live">속보</span><span>[${esc(n.tag)}]</span><span class="cat">${esc(n.category)}</span></div>
         <h1 class="typed">${back ? esc(head) : ''}</h1>
         <div id="news-detail" class="${back ? 'show instant' : ''} ${n.concept ? 'with-term' : ''}">
-          <div class="lines">${n.lines.map((l, i) => `<p style="animation-delay:${i * 0.6}s">${termHtml(esc(l), n.concept)}</p>`).join('')}</div>
+          <div class="lines">${n.lines.map((l, i) => `<p style="animation-delay:${i * 0.6}s">${newsLineHtml(esc(l), n)}</p>`).join('')}</div>
           ${n.concept ? `<aside class="term-card" style="animation-delay:${0.2 + n.lines.length * 0.6}s"><small>오늘의 경제 용어</small><b>${esc(n.concept.term)}</b><p>${esc(n.concept.desc)}</p></aside>` : ''}
-          <div class="chips" style="animation-delay:${0.3 + n.lines.length * 0.6}s">${n.companies.map((c) => `<span class="chip"><span class="cdot" style="--c:${c.color}"></span>${esc(c.name)} <small>${esc(c.note)}</small></span>`).join('')}</div>
+          <div class="chips" style="animation-delay:${0.3 + n.lines.length * 0.6}s">${newsChipsHtml(n.companies)}</div>
         </div>
       </div>
       <div class="ticker"><div class="ticker-track">${tickerText}</div></div>`;
@@ -626,10 +643,12 @@ function fitNews(headline, typedAlready) {
   h1.textContent = headline;
   const first = news.firstElementChild;
   const last = news.lastElementChild;
-  const fits = () => last.getBoundingClientRect().bottom - first.getBoundingClientRect().top <= news.clientHeight + 1;
+  const chips = $('.chips', news);
+  const fits = () => last.getBoundingClientRect().bottom - first.getBoundingClientRect().top <= news.clientHeight + 1
+    && (!chips || chips.scrollWidth <= chips.clientWidth + 1); // 관련 기업은 한 줄에
   let z = 1;
   news.style.setProperty('--nz', z);
-  while (!fits() && z > 0.6) {
+  while (!fits() && z > 0.5) {
     z = Math.round((z - 0.04) * 100) / 100;
     news.style.setProperty('--nz', z);
   }
@@ -638,6 +657,22 @@ function fitNews(headline, typedAlready) {
 
 // 공정 경쟁 뉴스: 기사 속 ‘담합’ 용어를 강조 (html 은 이미 escape 된 문자열)
 const termHtml = (html, concept) => (concept ? html.replace(`‘${esc(concept.term)}’`, (m) => `<b class="term">${m}</b>`) : html);
+// 뉴스 아래 관련 기업: 같은 설명(과장 광고·공동 가격 참여…)끼리 묶어 설명은 한 번만 → 5곳이어도 한 줄
+const newsChipsHtml = (companies) => {
+  const groups = [];
+  for (const c of companies) {
+    const g = groups.find((x) => x.note === c.note);
+    if (g) g.items.push(c);
+    else groups.push({ note: c.note, items: [c] });
+  }
+  return groups.map((g) => `<span class="chip-group"><small>${esc(g.note)}</small>${g.items.map((c) => `<span class="chip"><span class="cdot" style="--c:${c.color}"></span>${esc(c.name)}</span>`).join('')}</span>`).join('');
+};
+// 뉴스 본문: 해당 기업(아래 칩에 나오는 기업) 이름은 굵게, “소비자 인터뷰”는 노란색 (html 은 이미 escape 된 문자열)
+const newsLineHtml = (html, n) => {
+  let out = termHtml(html, n.concept).replace(/“[^”]*”/g, (m) => `<span class="quote">${m}</span>`);
+  for (const c of n.companies ?? []) out = out.split(esc(c.name)).join(`<b class="co">${esc(c.name)}</b>`);
+  return out;
+};
 
 // ── 사회점수 화면 ─────────────────────────────────────────────────────
 function scoreCard(c, isNew) {
@@ -755,7 +790,9 @@ function updateLive(v) {
   const done = new Set(v.submittedTeams ?? []);
   row.innerHTML = v.companies.map((c) => {
     const on = k === 'intro' ? c.connected : done.has(c.id);
-    const label = k === 'intro' ? (c.connected ? '✓ 접속' : '대기 중') : on ? '✓ 결정 완료' : '회의 중…';
+    const label = k === 'intro'
+      ? (c.connected ? `✓ ${c.group ? `${c.group}모둠` : '접속'}` : c.group ? `${c.group}모둠 · 연결 끊김` : '대기 중')
+      : on ? '✓ 결정 완료' : '회의 중…';
     return `<div class="company-card ${on ? 'on' : ''}" style="--c:${c.color}"><span class="blob"></span>${esc(c.name)}<small>${label}</small></div>`;
   }).join('');
 }
