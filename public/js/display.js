@@ -2,7 +2,7 @@
 // 이 화면에서도 키보드·PPT 프레젠터 리모컨으로 앞뒤 진행 가능 (교사 PIN 한 번 확인, 이 컴퓨터에 기억)
 //   /display?presenter=1 : 예전 주소 호환 (처음부터 PIN 입력 창)
 //   /display?preview=1   : 교사 콘솔 미리보기 (음소거, 조작 없음)
-import { $, $$, esc, won, signedWon, medal, connectLive, netBanner, animateNumber, fitText, api, storage, meetingTimer, timerHtml } from './common.js';
+import { $, $$, esc, won, signedWon, medal, connectLive, netBanner, animateNumber, fitText, api, storage, meetingTimer, timerHtml, presenterDir } from './common.js';
 import { unlockAudio, setMuted, typeClick, newsSting, bell, drumroll, accent, fanfare } from './sfx.js';
 
 const params = new URLSearchParams(location.search);
@@ -863,8 +863,6 @@ if (!PREVIEW) setupKeyboardControl();
 
 function setupKeyboardControl() {
   const PIN_KEY = 'slangi.adminPin';
-  const NEXT_KEYS = new Set(['PageDown', 'ArrowRight', 'Enter', ' ', 'Spacebar']);
-  const PREV_KEYS = new Set(['PageUp', 'ArrowLeft', 'Backspace']);
   const LOCK_MS = 600; // 한 번 누르면 한 장면만: 이 시간 안의 추가 입력·키 반복은 무시
   let pin = storage.get(PIN_KEY) || '';
   let authed = false;
@@ -994,7 +992,7 @@ function setupKeyboardControl() {
       return; // PIN 입력 중에는 키가 입력창으로
     }
     const isHint = (e.key === 'h' || e.key === 'H' || e.code === 'KeyH' || e.key === 'ㅗ') && !e.ctrlKey && !e.metaKey && !e.altKey;
-    const dir = NEXT_KEYS.has(e.key) ? 'next' : PREV_KEYS.has(e.key) ? 'prev' : null;
+    const dir = presenterDir(e, { withEnter: true });
     unlockAudio();
     hideStarter();
     if (isHint && view?.step.quiz === 'blank') {

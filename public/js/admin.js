@@ -1,5 +1,5 @@
 // 교사 콘솔 /admin — 모든 진행은 여기서 버튼으로만 (자동 진행 없음)
-import { $, $$, esc, won, signedWon, fmt, connectLive, api, toast, netBanner, storage, meetingTimer, timerHtml } from './common.js';
+import { $, $$, esc, won, signedWon, fmt, connectLive, api, toast, netBanner, storage, meetingTimer, timerHtml, presenterDir } from './common.js';
 
 const PIN_KEY = 'slangi.adminPin';
 let pin = storage.get(PIN_KEY) || '';
@@ -418,10 +418,11 @@ $('#keys').addEventListener('change', (e) => storage.set(KEYS_KEY, e.target.chec
 document.addEventListener('keydown', (e) => {
   if (!$('#keys').checked || $('#dlg').open) return;
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
-  if (['ArrowRight', 'PageDown'].includes(e.key)) {
+  const dir = presenterDir(e);
+  if (dir === 'next') {
     e.preventDefault();
     goNext();
-  } else if (['ArrowLeft', 'PageUp'].includes(e.key)) {
+  } else if (dir === 'prev') {
     e.preventDefault();
     goPrev();
   } else if (['h', 'H', 'ㅗ'].includes(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {

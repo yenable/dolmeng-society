@@ -263,6 +263,27 @@ export const storage = {
   },
 };
 
+// PPT 프레젠터(레이저포인터) 리모컨 키 → 'next' | 'prev' | null
+//  제품마다 보내는 키가 다름: PageDown/PageUp(대부분), →/←, ↓/↑, 미디어 다음/이전 트랙.
+//  일부 리모컨·브라우저는 e.key 가 'Unidentified' 로 와서 keyCode 로도 확인.
+//  withEnter: Enter·Space(다음)·Backspace(이전)도 진행 키로 (버튼이 없는 TV 화면 전용)
+const NEXT_KEYS = new Set(['PageDown', 'ArrowRight', 'ArrowDown', 'MediaTrackNext', 'MediaNextTrack']);
+const PREV_KEYS = new Set(['PageUp', 'ArrowLeft', 'ArrowUp', 'MediaTrackPrevious', 'MediaPreviousTrack']);
+const NEXT_CODES = new Set([34, 39, 40, 176]);
+const PREV_CODES = new Set([33, 37, 38, 177]);
+export function presenterDir(e, { withEnter = false } = {}) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return null;
+  const k = e.key;
+  const c = e.keyCode || e.which || 0;
+  if (NEXT_KEYS.has(k) || NEXT_CODES.has(c)) return 'next';
+  if (PREV_KEYS.has(k) || PREV_CODES.has(c)) return 'prev';
+  if (withEnter) {
+    if (k === 'Enter' || k === ' ' || k === 'Spacebar' || c === 13 || c === 32) return 'next';
+    if (k === 'Backspace' || c === 8) return 'prev';
+  }
+  return null;
+}
+
 // 한국어 조사 (받침 유무) — 서버 src/josa.js 와 같은 규칙
 export function josa(word, type) {
   const s = String(word).trim();
